@@ -32,7 +32,7 @@
 
             //------------------------------------------------------------------------------
 
-            const EXPECTED_FIRMWARE_VERSION = '0.2.2'
+            const EXPECTED_FIRMWARE_VERSION = '0.2.3'
             const EXPECTED_MTU = 224
             
             //------------------------------------------------------------------------------
@@ -59,7 +59,7 @@
             {
                 await service.getCharacteristic(SET_DMP_OPERATION_MODE_CHARACTERISTIC_UUID)
                     .then(characteristic => characteristic
-                        .writeValueWithoutResponse(new Uint8Array([1])))
+                        .writeValueWithResponse(new Uint8Array([1])))
             }
             
             //------------------------------------------------------------------------------
