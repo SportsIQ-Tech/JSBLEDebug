@@ -27,12 +27,11 @@
 
             const SERVICE_UUID = 'b7063e97-8504-4fcb-b0f5-aef2d5903c4d'
             const FIRMWARE_VERSION_CHARACTERISTIC_UUID = 'e6c94776-9475-4a8c-b4c6-ac60446111af'
-            const SET_DMP_OPERATION_MODE_CHARACTERISTIC_UUID = 'bd0db5e8-d87b-49fe-bbf5-02dfa03beb56'
             const DMP_STREAM_CHARACTERISTIC_UUID = '71fa0f31-bcc7-42f2-bb57-a9810b436231'
 
             //------------------------------------------------------------------------------
 
-            const EXPECTED_FIRMWARE_VERSION = '0.2.3'
+            const EXPECTED_FIRMWARE_VERSION = '0.6'
             const EXPECTED_MTU = 224
             
             //------------------------------------------------------------------------------
@@ -42,8 +41,8 @@
                 let data = await service.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID)
                     .then(characteristic => characteristic.readValue())
                 let version = ''
-                for (let index = 0; index < 3; index++)
-                    version += `.${data.getUint32(index * 4, true)}`
+                for (let index = 0; index < 2; index++)
+                    version += `.${data.getUint8(index)}`
                 version = version.slice(1)
                 if (version != EXPECTED_FIRMWARE_VERSION)
                 {
@@ -51,15 +50,6 @@
                     const found = `  Found: ${version}`
                     alert(`\nFirmware version mismatch\n\n${expected}\n${found}\n`)
                 }
-            }
-
-            //------------------------------------------------------------------------------
-
-            const enable_dmp_stream = async service =>
-            {
-                await service.getCharacteristic(SET_DMP_OPERATION_MODE_CHARACTERISTIC_UUID)
-                    .then(characteristic => characteristic
-                        .writeValueWithResponse(new Uint8Array([1])))
             }
             
             //------------------------------------------------------------------------------
@@ -80,7 +70,7 @@
                     const device = await navigator.bluetooth.requestDevice
                     (
                         {
-                            filters: [{name: 'Gumball'}],
+                            filters: [{name: 'KaiTag'}],
                             optionalServices: [SERVICE_UUID]
                         }
                     )
@@ -107,7 +97,6 @@
                     const service = await await device.gatt.connect()
                         .then(server => server.getPrimaryService(SERVICE_UUID))
                     check_firmware_version(service)
-                    enable_dmp_stream(service)
                     const dmp_stream_characteristic = await service
                         .getCharacteristic(DMP_STREAM_CHARACTERISTIC_UUID)
                     await dmp_stream_characteristic.startNotifications()
