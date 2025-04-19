@@ -54,9 +54,9 @@
              font-size: 14px;
              z-index: 10; /* Ensure status is on top of canvas */
         }
-    </style>
-</head>
-<body>
+        </style>
+    </head>
+    <body>
     <!-- Containers for split view -->
     <div id="top-container">
         <!-- Connect button and status moved inside top container -->
@@ -75,6 +75,11 @@
      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
      crossorigin=""></script>
+
+    <!-- Add Socket.IO Client Library -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"
+    integrity="sha384-2huaZvOR9iDzHqslqwpR87isEmrfxqyWOF7hr7BY6KG0+hVKLoEXMPUJw3ynWuhO"
+    crossorigin="anonymous"></script>
 
     <script type="importmap">
         {
@@ -109,11 +114,100 @@
         const targetQuaternion = new THREE.Quaternion();
         const displayQuaternion = new THREE.Quaternion();
         let map = null; // Leaflet map instance
-        let gpsMarker = null; // Leaflet marker instance
+        let localGpsMarker = null; // Leaflet marker instance for the LOCAL user
+        let otherClientMarkers = {}; // { clientId: { marker: L.Marker, line: L.Polyline }, ... }
         let firstGpsUpdate = true;
-        let directionLine = null; // Leaflet polyline for direction
-        const lineDistanceMeters = 500; // How long the direction line should be (increased 10x)
+        const lineDistanceMeters = 500; // How long the direction line should be
         const forwardVector = new THREE.Vector3(); // Reusable vector for direction calculation
+        let socket = null; // Changed from webSocket
+        let myClientId = null;
+        let clientStates = {}; // { clientId: { lat: number, lon: number, bearing: number, timestamp: number }, ... }
+        // No WS_URL needed when served from same origin
+
+        // Throttling for bearing updates
+        let lastBearingSendTime = 0;
+        let lastSentBearing = -1; // Initialize to impossible value
+        const bearingUpdateThreshold = 1.0; // Degrees
+        const bearingUpdateInterval = 100; // Milliseconds (10 times per second max)
+
+        // --- WebSocket Communication ---
+        function connectSocketIO() {
+             // Connect to the Socket.IO server (same origin)
+             socket = io(); // If server is elsewhere: io('http://server.com:port');
+
+             socket.on('connect', () => {
+                 console.log('Socket.IO Connected, SID:', socket.id);
+                 statusDiv.textContent = 'Status: Connected';
+                 // Client ID is now socket.id, but wait for 'your_id' message
+                 // just in case server uses a different ID system
+             });
+
+             socket.on('disconnect', (reason) => {
+                 console.log('Socket.IO Disconnected:', reason);
+                 statusDiv.textContent = 'Status: Disconnected';
+                 myClientId = null;
+                 // Clear other clients from map
+                 Object.values(otherClientMarkers).forEach(({ marker, line }) => {
+                     if (map && marker) map.removeLayer(marker);
+                     if (map && line) map.removeLayer(line);
+                 });
+                 otherClientMarkers = {};
+                 clientStates = {};
+             });
+
+             socket.on('connect_error', (error) => {
+                 console.error('Socket.IO Connection Error:', error);
+                 statusDiv.textContent = 'Status: Connection Error';
+             });
+
+             // --- Custom Event Handlers ---
+             socket.on('your_id', (id) => {
+                 myClientId = id;
+                 console.log('My Client ID:', myClientId);
+             });
+
+             socket.on('all_states', (states) => {
+                 // console.log('Received all_states:', states);
+                 clientStates = states;
+                 updateMapMarkers(); // Redraw map based on new states
+             });
+
+             socket.on('client_disconnected', (disconnectedId) => {
+                  console.log(`Client disconnected event: ${disconnectedId}`);
+                  // Remove the specific client (map update handled by 'all_states' usually,
+                  // but we can explicitly remove here too for faster feedback)
+                  if (otherClientMarkers[disconnectedId]) {
+                     if(map && otherClientMarkers[disconnectedId].marker) map.removeLayer(otherClientMarkers[disconnectedId].marker);
+                     if(map && otherClientMarkers[disconnectedId].line) map.removeLayer(otherClientMarkers[disconnectedId].line);
+                     delete otherClientMarkers[disconnectedId];
+                     console.log(`Removed disconnected client ${disconnectedId} marker/line`);
+                  }
+                  // State update will come via next 'all_states' broadcast
+             });
+
+             socket.on('bearing_updated', (update) => {
+                 // console.log('Received bearing_updated:', update);
+                 const { clientId, bearing, timestamp } = update;
+                 if (clientStates[clientId]) {
+                     clientStates[clientId].bearing = bearing;
+                     clientStates[clientId].timestamp = timestamp; // Use server timestamp
+                     // Update map (could optimize to only update the specific client's line)
+                     updateMapMarkers();
+                 } else {
+                     console.warn('Received bearing update for unknown client:', clientId);
+                     // Request full state? Or wait for next all_states broadcast.
+                 }
+             });
+         }
+
+        function sendSocketIOMessage(type, payload) {
+            if (socket && socket.connected) {
+                // console.log('Emitting Socket.IO message:', type, payload);
+                socket.emit(type, payload);
+            } else {
+                console.warn('Socket.IO not connected. Message not sent:', type);
+            }
+        }
 
         // --- Helper: Calculate Destination Point ---
         function calculateDestinationPoint(lat1, lon1, bearing, distance) {
@@ -134,36 +228,89 @@
             return [lat2, lon2];
         }
 
-        // --- Helper: Update Direction Line ---
-        function updateDirectionLine() {
-            if (!ar15Model || !gpsMarker || !directionLine || !gpsMarker.getLatLng()) {
-                // console.log("Skipping direction line update - dependencies not ready.");
-                return; // Need model, marker, line, and valid LatLng
-            }
+        // --- Helper: Get Local Bearing ---
+        function getLocalBearing() {
+             if (!ar15Model) return 0; // Default bearing
 
             // 1. Get Gun's World Direction
             ar15Model.getWorldDirection(forwardVector); // Updates forwardVector
 
-            // 2. Calculate Azimuth (angle in XZ plane relative to +Z axis)
-            // Note: Assumes Y is up. Adjust if model orientation is different.
+            // 2. Calculate Azimuth
             const azimuth = Math.atan2(forwardVector.x, forwardVector.z);
 
-            // 3. Convert Azimuth to Bearing (degrees clockwise from North)
-            //    This assumes +Z in Three.js world space corresponds to North.
-            //    You MAY need to add an offset (e.g., +90, +180) depending on your
-            //    model's base orientation and desired North alignment.
+            // 3. Convert Azimuth to Bearing
             let bearing = azimuth * (180 / Math.PI);
             bearing = (bearing + 360) % 360; // Normalize to 0-359 degrees
+            // Adjust bearing offset if needed here based on model orientation vs North
+            return bearing;
+        }
 
-            // 4. Get Start Point (GPS location)
-            const startPoint = gpsMarker.getLatLng();
+        // --- Helper: Update Map Markers and Lines (All Clients) ---
+        function updateMapMarkers() {
+            if (!map || !myClientId) return; // Need map and our ID
 
-            // 5. Calculate End Point
-            const endPointLatLng = calculateDestinationPoint(startPoint.lat, startPoint.lng, bearing, lineDistanceMeters);
+            const currentOtherIds = new Set(Object.keys(otherClientMarkers));
 
-            // 6. Update Leaflet Polyline
-            directionLine.setLatLngs([ [startPoint.lat, startPoint.lng], endPointLatLng ]);
-            // console.log(`Updated direction line: Bearing ${bearing.toFixed(1)}`);
+            for (const clientId in clientStates) {
+                const state = clientStates[clientId];
+                const latLng = L.latLng(state.lat, state.lon);
+                const endPointLatLng = calculateDestinationPoint(state.lat, state.lon, state.bearing, lineDistanceMeters);
+                const isLocal = (clientId === myClientId);
+
+                if (isLocal) {
+                    // Update local marker and line (create if they don't exist)
+                    if (!localGpsMarker) {
+                         localGpsMarker = L.circleMarker(latLng, {
+                            radius: 8, fillColor: "#00ff00", color: "#000",
+                            weight: 1, opacity: 1, fillOpacity: 0.8
+                         }).addTo(map).bindPopup("You");
+                         // Create local direction line associated with marker
+                         localGpsMarker.directionLine = L.polyline([latLng, endPointLatLng], {
+                            color: '#00ff00', weight: 3
+                         }).addTo(map);
+                    } else {
+                        localGpsMarker.setLatLng(latLng);
+                        localGpsMarker.directionLine.setLatLngs([latLng, endPointLatLng]);
+                    }
+                    // Center map on local user on first GPS update
+                    if (firstGpsUpdate) {
+                        map.setView(latLng, 15);
+                        firstGpsUpdate = false;
+                        console.log("Local GPS Acquired, centering map.");
+                    }
+
+                } else {
+                    // Update other client marker and line
+                    if (otherClientMarkers[clientId]) {
+                        // Existing other client
+                        otherClientMarkers[clientId].marker.setLatLng(latLng);
+                        otherClientMarkers[clientId].line.setLatLngs([latLng, endPointLatLng]);
+                    } else {
+                        // New other client
+                        const marker = L.circleMarker(latLng, {
+                            radius: 6, fillColor: "#0000ff", color: "#000", // Blue
+                            weight: 1, opacity: 1, fillOpacity: 0.7
+                        }).addTo(map).bindPopup(`Client ${clientId.substring(0, 6)}`);
+
+                        const line = L.polyline([latLng, endPointLatLng], {
+                            color: '#0000ff', weight: 3 // Blue
+                        }).addTo(map);
+                        otherClientMarkers[clientId] = { marker, line };
+                        console.log(`Added other client ${clientId} to map`);
+                    }
+                    currentOtherIds.delete(clientId); // Mark this ID as still present
+                }
+            }
+
+             // Remove markers for clients that are no longer in clientStates
+            currentOtherIds.forEach(clientIdToRemove => {
+                if (otherClientMarkers[clientIdToRemove]) {
+                    map.removeLayer(otherClientMarkers[clientIdToRemove].marker);
+                    map.removeLayer(otherClientMarkers[clientIdToRemove].line);
+                    delete otherClientMarkers[clientIdToRemove];
+                    console.log(`Removed stale client ${clientIdToRemove} from map`);
+                }
+            });
         }
 
         // --- 3D Setup ---
@@ -224,36 +371,16 @@
 
         // --- Map Setup ---
         function initMap() {
-            // Initial coordinates (e.g., center of the world)
             const initialCoords = [0, 0];
-            map = L.map(mapContainer).setView(initialCoords, 2); // Initialize map in the container
-
-            // Add Tile Layer (OpenStreetMap)
+            map = L.map(mapContainer).setView(initialCoords, 2);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(map);
 
-             // Add Marker (initially hidden or at 0,0)
-            gpsMarker = L.circleMarker(initialCoords, {
-                radius: 8,
-                fillColor: "#00ff00", // Green
-                color: "#000",
-                weight: 1,
-                opacity: 1,
-                fillOpacity: 0.8
-            }).addTo(map);
-            gpsMarker.bindPopup("Your Location");
-
-            // Add empty Polyline for direction indicator
-            directionLine = L.polyline([], {
-                color: '#00ff00', // Green color for the line (matches marker)
-                weight: 3
-            }).addTo(map);
-
-            console.log("Map initialized with marker and direction line");
+            // Markers and lines are now created/updated dynamically in updateMapMarkers
+            console.log("Map initialized");
         }
-
 
         function onWindowResize() {
              // Update 3D view
@@ -278,23 +405,43 @@
             requestAnimationFrame(animate);
 
             let modelRotated = false;
+            let currentBearing = 0;
             if (ar15Model) {
                 // Smoothly interpolate the model's rotation
                 displayQuaternion.slerp(targetQuaternion, 0.1);
                 // Apply base rotation if needed (adjust based on your model)
-                const baseOrientation = new THREE.Quaternion() //.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); // Keep base rotation if needed or remove
+                const baseOrientation = new THREE.Quaternion() //.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
                 const finalQuaternion = baseOrientation.multiply(displayQuaternion);
                 ar15Model.setRotationFromQuaternion(finalQuaternion);
                 modelRotated = true;
+                currentBearing = getLocalBearing(); // Get bearing after rotation
             }
 
-            if (renderer && scene && camera) { // Ensure Three.js is initialized
+            if (renderer && scene && camera) {
                 renderer.render(scene, camera);
             }
 
-            // Update the direction line AFTER rendering and model rotation
-            if (modelRotated) { // Only update if model exists and was potentially rotated
-                updateDirectionLine();
+            // Update LOCAL direction line directly based on latest bearing
+            let localLineUpdated = false;
+            if (modelRotated && localGpsMarker && localGpsMarker.directionLine) {
+                const startPoint = localGpsMarker.getLatLng();
+                if (startPoint) { // Ensure we have a valid LatLng
+                    const endPointLatLng = calculateDestinationPoint(startPoint.lat, startPoint.lng, currentBearing, lineDistanceMeters);
+                    localGpsMarker.directionLine.setLatLngs([ [startPoint.lat, startPoint.lng], endPointLatLng ]);
+                    localLineUpdated = true;
+                }
+            }
+
+            // Throttle sending bearing updates via Socket.IO
+            const now = Date.now();
+            if (modelRotated && socket && socket.connected && myClientId &&
+                (Math.abs(currentBearing - lastSentBearing) > bearingUpdateThreshold || lastSentBearing < 0) && // Bearing changed enough or first time
+                (now - lastBearingSendTime > bearingUpdateInterval) ) // Enough time passed
+            {
+                socket.emit('update_bearing', currentBearing);
+                lastSentBearing = currentBearing;
+                lastBearingSendTime = now;
+                // console.log(`Sent bearing update: ${currentBearing.toFixed(1)}`);
             }
         }
 
@@ -305,32 +452,35 @@
                     (position) => {
                         const lat = position.coords.latitude;
                         const lon = position.coords.longitude;
-                        const coords = [lat, lon];
+                        const bearing = getLocalBearing(); // Get current bearing
 
-                        // Update map and marker
-                        if (map && gpsMarker) {
-                            const latLng = L.latLng(lat, lon);
-                            gpsMarker.setLatLng(latLng);
-                            if (firstGpsUpdate) {
-                                map.setView(latLng, 15); // Zoom in on first update
-                                firstGpsUpdate = false;
-                                console.log("GPS Acquired, centering map.");
-                            }
-                            // Update the direction line now that the start point moved
-                            updateDirectionLine();
-                        } else {
-                             console.log("GPS update received, but map not ready yet.");
+                        // Send local state update to server
+                        sendSocketIOMessage('update_state', {
+                            lat: lat,
+                            lon: lon,
+                            bearing: bearing
+                            // timestamp: Date.now() // Optional: server can handle this
+                        });
+
+                        // Update local state immediately for responsiveness (server will echo back)
+                        if(myClientId) {
+                             if (!clientStates[myClientId]) clientStates[myClientId] = {};
+                             clientStates[myClientId].lat = lat;
+                             clientStates[myClientId].lon = lon;
+                             clientStates[myClientId].bearing = bearing;
+                             clientStates[myClientId].timestamp = Date.now();
+                             updateMapMarkers(); // Update map immediately with local change
                         }
+
                     },
                     (error) => {
-                        // Display error on the status div maybe?
                         statusDiv.textContent = `Status: GPS Error - ${error.message}`;
                         console.error("Geolocation error:", error);
                     },
                     {
-                        enableHighAccuracy: true,
-                        maximumAge: 10000,
-                        timeout: 5000
+                        enableHighAccuracy: true, // Keep high accuracy
+                        maximumAge: 5000,      // Don't use old positions > 5s
+                        timeout: 10000         // Give up after 10s
                     }
                 );
             } else {
@@ -435,11 +585,11 @@
             }
         });
 
-
         // --- Initialization ---
-        initMap(); // Initialize map first
+        initMap();
         initThreeJS();
         initGPS();
+        connectSocketIO(); // Connect Socket.IO after setting up UI
 
         </script>
     </body>
