@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+    <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KaiTag AR15 & GPS Map</title>
@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
      crossorigin=""/>
-    <style>
+        <style>
         body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: monospace; display: flex; flex-direction: column; height: 100vh; }
         #top-container {
             flex: 1; /* Take up remaining space */
@@ -111,6 +111,60 @@
         let map = null; // Leaflet map instance
         let gpsMarker = null; // Leaflet marker instance
         let firstGpsUpdate = true;
+        let directionLine = null; // Leaflet polyline for direction
+        const lineDistanceMeters = 500; // How long the direction line should be (increased 10x)
+        const forwardVector = new THREE.Vector3(); // Reusable vector for direction calculation
+
+        // --- Helper: Calculate Destination Point ---
+        function calculateDestinationPoint(lat1, lon1, bearing, distance) {
+            const R = 6371e3; // Earth radius in meters
+            const phi1 = lat1 * Math.PI / 180; // φ, λ in radians
+            const lambda1 = lon1 * Math.PI / 180;
+            const brng = bearing * Math.PI / 180;
+            const d = distance;
+
+            const phi2 = Math.asin(Math.sin(phi1) * Math.cos(d / R) +
+                                 Math.cos(phi1) * Math.sin(d / R) * Math.cos(brng));
+            const lambda2 = lambda1 + Math.atan2(Math.sin(brng) * Math.sin(d / R) * Math.cos(phi1),
+                                           Math.cos(d / R) - Math.sin(phi1) * Math.sin(phi2));
+
+            const lat2 = phi2 * 180 / Math.PI;
+            const lon2 = lambda2 * 180 / Math.PI;
+
+            return [lat2, lon2];
+        }
+
+        // --- Helper: Update Direction Line ---
+        function updateDirectionLine() {
+            if (!ar15Model || !gpsMarker || !directionLine || !gpsMarker.getLatLng()) {
+                // console.log("Skipping direction line update - dependencies not ready.");
+                return; // Need model, marker, line, and valid LatLng
+            }
+
+            // 1. Get Gun's World Direction
+            ar15Model.getWorldDirection(forwardVector); // Updates forwardVector
+
+            // 2. Calculate Azimuth (angle in XZ plane relative to +Z axis)
+            // Note: Assumes Y is up. Adjust if model orientation is different.
+            const azimuth = Math.atan2(forwardVector.x, forwardVector.z);
+
+            // 3. Convert Azimuth to Bearing (degrees clockwise from North)
+            //    This assumes +Z in Three.js world space corresponds to North.
+            //    You MAY need to add an offset (e.g., +90, +180) depending on your
+            //    model's base orientation and desired North alignment.
+            let bearing = azimuth * (180 / Math.PI);
+            bearing = (bearing + 360) % 360; // Normalize to 0-359 degrees
+
+            // 4. Get Start Point (GPS location)
+            const startPoint = gpsMarker.getLatLng();
+
+            // 5. Calculate End Point
+            const endPointLatLng = calculateDestinationPoint(startPoint.lat, startPoint.lng, bearing, lineDistanceMeters);
+
+            // 6. Update Leaflet Polyline
+            directionLine.setLatLngs([ [startPoint.lat, startPoint.lng], endPointLatLng ]);
+            // console.log(`Updated direction line: Bearing ${bearing.toFixed(1)}`);
+        }
 
         // --- 3D Setup ---
         function initThreeJS() {
@@ -191,7 +245,13 @@
             }).addTo(map);
             gpsMarker.bindPopup("Your Location");
 
-            console.log("Map initialized");
+            // Add empty Polyline for direction indicator
+            directionLine = L.polyline([], {
+                color: '#00ff00', // Green color for the line (matches marker)
+                weight: 3
+            }).addTo(map);
+
+            console.log("Map initialized with marker and direction line");
         }
 
 
@@ -217,6 +277,7 @@
         function animate() {
             requestAnimationFrame(animate);
 
+            let modelRotated = false;
             if (ar15Model) {
                 // Smoothly interpolate the model's rotation
                 displayQuaternion.slerp(targetQuaternion, 0.1);
@@ -224,10 +285,16 @@
                 const baseOrientation = new THREE.Quaternion() //.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); // Keep base rotation if needed or remove
                 const finalQuaternion = baseOrientation.multiply(displayQuaternion);
                 ar15Model.setRotationFromQuaternion(finalQuaternion);
+                modelRotated = true;
             }
 
             if (renderer && scene && camera) { // Ensure Three.js is initialized
                 renderer.render(scene, camera);
+            }
+
+            // Update the direction line AFTER rendering and model rotation
+            if (modelRotated) { // Only update if model exists and was potentially rotated
+                updateDirectionLine();
             }
         }
 
@@ -242,21 +309,18 @@
 
                         // Update map and marker
                         if (map && gpsMarker) {
-                            gpsMarker.setLatLng(coords);
+                            const latLng = L.latLng(lat, lon);
+                            gpsMarker.setLatLng(latLng);
                             if (firstGpsUpdate) {
-                                map.setView(coords, 15); // Zoom in on first update
+                                map.setView(latLng, 15); // Zoom in on first update
                                 firstGpsUpdate = false;
                                 console.log("GPS Acquired, centering map.");
                             }
-                            // Optionally keep centering map on every update:
-                            // map.panTo(coords);
+                            // Update the direction line now that the start point moved
+                            updateDirectionLine();
                         } else {
                              console.log("GPS update received, but map not ready yet.");
                         }
-
-                        // Log coordinates (optional)
-                         // console.log(`GPS Updated: ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
-
                     },
                     (error) => {
                         // Display error on the status div maybe?
@@ -377,6 +441,6 @@
         initThreeJS();
         initGPS();
 
-    </script>
-</body>
+        </script>
+    </body>
 </html>
