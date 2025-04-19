@@ -1,136 +1,286 @@
-
 <!DOCTYPE html>
-<html lang='en' dir='ltr'>
-    <head>
-        <title>JSBLEDebug</title>
-        <meta charset='utf-8'>
-        <meta name='viewport' content='width=device-width, initial-scale=1'/>
-        <style>
-            *
-            {
-                box-sizing: border-box;
-                color: #d0d0d0;
-                background-color: #181818;
-                font-family: 'Courier New', Courier, monospace;
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KaiTag AR15 & GPS</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: monospace; }
+        canvas { display: block; }
+        #gps-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        #connect-button {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 10px 15px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #444;
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+        }
+        #status {
+             position: absolute;
+             bottom: 10px;
+             left: 10px;
+             padding: 5px 10px;
+             background-color: rgba(0, 0, 0, 0.5);
+             border-radius: 5px;
+             font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gps-info">GPS: Acquiring...</div>
+    <button id="connect-button">Connect KaiTag</button>
+    <div id="status">Status: Disconnected</div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/"
             }
-            ol
-            {
-                margin: 2rem;
-            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // Import GLTFLoader
 
-        </style>
-    </head>
-    <body>
-        <main><ol></ol></main>
-        </main>
-        <script>
+        // --- Constants ---
+        const SERVICE_UUID = 'b7063e97-8504-4fcb-b0f5-aef2d5903c4d';
+        // Assuming the DMP stream contains quaternion data. Adjust if there's a specific quaternion characteristic.
+        const QUATERNION_CHARACTERISTIC_UUID = '71fa0f31-bcc7-42f2-bb57-a9810b436231';
 
-            const SERVICE_UUID = 'b7063e97-8504-4fcb-b0f5-aef2d5903c4d'
-            const FIRMWARE_VERSION_CHARACTERISTIC_UUID = 'e6c94776-9475-4a8c-b4c6-ac60446111af'
-            const DMP_STREAM_CHARACTERISTIC_UUID = '71fa0f31-bcc7-42f2-bb57-a9810b436231'
+        // --- DOM Elements ---
+        const gpsInfoDiv = document.getElementById('gps-info');
+        const connectButton = document.getElementById('connect-button');
+        const statusDiv = document.getElementById('status');
 
-            //------------------------------------------------------------------------------
+        // --- State ---
+        let device = null;
+        let quaternionCharacteristic = null;
+        let ar15Model = null; // Changed from cube
+        let scene = null;
+        let camera = null;
+        let renderer = null;
+        const targetQuaternion = new THREE.Quaternion(); // Target orientation from BLE
+        const displayQuaternion = new THREE.Quaternion(); // Smoothly interpolated orientation for display
 
-            const EXPECTED_FIRMWARE_VERSION = '0.6'
-            const EXPECTED_MTU = 224
-            
-            //------------------------------------------------------------------------------
+        // --- 3D Setup ---
+        function initThreeJS() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
 
-            const check_firmware_version = async service =>
-            {
-                let data = await service.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID)
-                    .then(characteristic => characteristic.readValue())
-                let version = ''
-                for (let index = 0; index < 2; index++)
-                    version += `.${data.getUint8(index)}`
-                version = version.slice(1)
-                if (version != EXPECTED_FIRMWARE_VERSION)
-                {
-                    const expected = `  Expected: ${EXPECTED_FIRMWARE_VERSION}`
-                    const found = `  Found: ${version}`
-                    alert(`\nFirmware version mismatch\n\n${expected}\n${found}\n`)
+            // Basic lighting
+            const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+
+            // Load AR15 Model
+            const loader = new GLTFLoader();
+            const modelPath = 'models/ar15.glb'; // Assumed path - CHANGE IF DIFFERENT
+            loader.load(
+                modelPath,
+                function (gltf) {
+                    ar15Model = gltf.scene; // Assign the loaded scene graph
+                    // Optional: Adjust scale, position, rotation of the loaded model if needed
+                    ar15Model.scale.set(0.1, 0.1, 0.1); // Example: scale down if it's too big
+                    ar15Model.position.set(0, -0.5, 0); // Example: adjust vertical position
+                    scene.add(ar15Model);
+                    console.log(`Loaded ${modelPath}`);
+                },
+                undefined, // Progress callback (optional)
+                function (error) {
+                    console.error(`Error loading ${modelPath}:`, error);
+                    statusDiv.textContent = `Status: Error loading 3D model! Check console.`;
+                    // Optionally add a placeholder cube if loading fails
+                    const geometry = new THREE.BoxGeometry(1, 1, 1);
+                    const material = new THREE.MeshStandardMaterial({color: 0xdddddd});
+                    ar15Model = new THREE.Mesh(geometry, material); // Use ar15Model variable
+                    scene.add(ar15Model); // Add placeholder
                 }
+            );
+
+            camera.position.z = 3;
+
+            animate();
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Smoothly interpolate the model's rotation towards the target quaternion
+            displayQuaternion.slerp(targetQuaternion, 0.1); // Adjust the 0.1 factor for more/less smoothing
+
+            // Apply rotation to the loaded model IF it exists
+            if (ar15Model) {
+                 // Apply the base orientation first (adjust if model isn't oriented correctly)
+                 // Example: Rotate model 90 degrees around Y axis if it loads sideways
+                 const baseOrientation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); // Adjust axis/angle as needed
+                 const finalQuaternion = baseOrientation.multiply(displayQuaternion); // Apply BLE rotation on top of base rotation
+                 ar15Model.setRotationFromQuaternion(finalQuaternion);
+                 // Alternatively, if the model loads in the correct base orientation:
+                 // ar15Model.setRotationFromQuaternion(displayQuaternion);
             }
-            
-            //------------------------------------------------------------------------------
 
-            const list_node = document.querySelector('ol')
-            let connections = []
+            renderer.render(scene, camera);
+        }
 
-            //------------------------------------------------------------------------------
-
-            alert('Press anywhere on screen to bring up a pairing menu.')
-            
-            //------------------------------------------------------------------------------
-
-            document.onclick = async event =>
-            {
-                try
-                {
-                    const device = await navigator.bluetooth.requestDevice
-                    (
-                        {
-                            filters: [{name: 'KaiTag'}],
-                            optionalServices: [SERVICE_UUID]
-                        }
-                    )
-                    const device_id = device.id.slice(0, 22)
-                    for (const connection of connections)
+        // --- GPS ---
+        function initGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        const lat = position.coords.latitude.toFixed(6);
+                        const lon = position.coords.longitude.toFixed(6);
+                        gpsInfoDiv.textContent = `GPS: ${lat}, ${lon}`;
+                    },
+                    (error) => {
+                        gpsInfoDiv.textContent = `GPS Error: ${error.message}`;
+                        console.error("Geolocation error:", error);
+                    },
                     {
-                        if (connection == device_id)
-                            return
+                        enableHighAccuracy: true,
+                        maximumAge: 10000,
+                        timeout: 5000
                     }
-                    connections.push(device_id)
-                    const list_item_node = document.createElement('li')
-                    const text_node = document.createTextNode('-')
-                    list_item_node.appendChild(text_node)
-                    list_node.appendChild(list_item_node)
-                    device.addEventListener
-                    (
-                        'gattserverdisconnected',
-                        event => 
-                        {
-                            list_item_node.remove()
-                            connections.splice(connections.indexOf(device_id), 1)
-                        }
-                    )
-                    const service = await await device.gatt.connect()
-                        .then(server => server.getPrimaryService(SERVICE_UUID))
-                    check_firmware_version(service)
-                    const dmp_stream_characteristic = await service
-                        .getCharacteristic(DMP_STREAM_CHARACTERISTIC_UUID)
-                    await dmp_stream_characteristic.startNotifications()
-                    let onset = Date.now()
-                    let frame_count = 0
-                    dmp_stream_characteristic.addEventListener
-                    (
-                        'characteristicvaluechanged', event =>
-                        {
-                            const mtu = event.target.value.byteLength
-                            if (mtu != EXPECTED_MTU)
-                            {
-                                const expected = `  Expected: ${EXPECTED_MTU}`
-                                const found = `  Found: ${mtu}`
-                                alert(`\MTU size mismatch\n\n${expected}\n${found}\n`)
-                                device.gatt.disconnect()
-                            }
-                            frame_count += 8
-                            let now = Date.now()
-                            if (now - onset >= 1000)
-                            {
-                                text_node.nodeValue = `${device_id}: ${frame_count} FPS`
-                                onset = now
-                                frame_count = 0
-                            }
-                        }
-                    )
+                );
+            } else {
+                gpsInfoDiv.textContent = "GPS not supported";
+            }
+        }
+
+        // --- BLE ---
+        async function connectDevice() {
+            try {
+                statusDiv.textContent = 'Status: Requesting device...';
+                device = await navigator.bluetooth.requestDevice({
+                     filters: [{name: 'KaiTag'}],
+                     optionalServices: [SERVICE_UUID]
+                });
+                statusDiv.textContent = `Status: Connecting to ${device.name}...`;
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                const server = await device.gatt.connect();
+                statusDiv.textContent = 'Status: Getting Service...';
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                statusDiv.textContent = 'Status: Getting Characteristic...';
+                quaternionCharacteristic = await service.getCharacteristic(QUATERNION_CHARACTERISTIC_UUID);
+                statusDiv.textContent = 'Status: Starting Notifications...';
+                await quaternionCharacteristic.startNotifications();
+                quaternionCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+                statusDiv.textContent = `Status: Connected to ${device.name}`;
+                connectButton.textContent = 'Disconnect';
+                console.log('Connected to KaiTag');
+            } catch (error) {
+                statusDiv.textContent = `Status: Error - ${error.message}`;
+                console.error('BLE Connection Error:', error);
+                if (device) {
+                    device.removeEventListener('gattserverdisconnected', onDisconnected);
+                    if (device.gatt.connected) {
+                        device.gatt.disconnect();
+                    }
                 }
-                catch(error)
-                {
-                    console.log(error)
-                }
+                device = null;
+                quaternionCharacteristic = null;
+                 connectButton.textContent = 'Connect KaiTag';
+            }
+        }
+
+        function onDisconnected() {
+            statusDiv.textContent = 'Status: Disconnected';
+            console.log('Device disconnected');
+            if (quaternionCharacteristic) {
+                quaternionCharacteristic.removeEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+            }
+            device.removeEventListener('gattserverdisconnected', onDisconnected);
+            device = null;
+            quaternionCharacteristic = null;
+            connectButton.textContent = 'Connect KaiTag';
+             // Reset target orientation
+             targetQuaternion.set(0, 0, 0, 1);
+        }
+
+        async function disconnectDevice() {
+            if (!device || !device.gatt.connected) return;
+            statusDiv.textContent = 'Status: Disconnecting...';
+            try {
+                 // Stop notifications before disconnecting
+                if (quaternionCharacteristic && quaternionCharacteristic.properties.notify) {
+                    await quaternionCharacteristic.stopNotifications();
+                    quaternionCharacteristic.removeEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+                     console.log('Stopped characteristic notifications.');
+                 }
+                device.gatt.disconnect(); // onDisconnected will handle the rest
+            } catch(error) {
+                statusDiv.textContent = `Status: Error disconnecting - ${error.message}`;
+                console.error('BLE Disconnect Error:', error);
+                // Force cleanup even if stopNotifications failed
+                onDisconnected();
             }
 
-        </script>
-    </body>
+        }
+
+        function handleCharacteristicValueChanged(event) {
+            const value = event.target.value; // This is a DataView
+             // IMPORTANT: Assuming quaternion data is 4 floats (w, x, y, z) starting at byte 0
+             // Adjust byteOffset and isLittleEndian based on KaiTag firmware
+             if (value.byteLength >= 16) {
+                 try {
+                    // --- IMPORTANT ---
+                    // Check the order (w,x,y,z or x,y,z,w) and endianness from KaiTag firmware
+                    // Example: getFloat32(offset, isLittleEndian)
+                    const w = value.getFloat32(0, true); // Assuming little-endian, W first
+                    const x = value.getFloat32(4, true);
+                    const y = value.getFloat32(8, true);
+                    const z = value.getFloat32(12, true);
+
+                     // Update the target quaternion for animation loop
+                     // Note: Three.js quaternion set() is (x, y, z, w)
+                     targetQuaternion.set(x, y, z, w).normalize();
+                 } catch (e) {
+                     console.error("Error parsing quaternion data:", e);
+                 }
+
+            } else {
+                 console.warn(`Received data length ${value.byteLength} is less than expected 16 bytes for quaternion.`);
+             }
+        }
+
+        // --- Event Listeners ---
+        connectButton.addEventListener('click', () => {
+            if (device && device.gatt.connected) {
+                disconnectDevice();
+            } else {
+                connectDevice();
+            }
+        });
+
+
+        // --- Initialization ---
+        initThreeJS();
+        initGPS();
+
+    </script>
+</body>
 </html>
