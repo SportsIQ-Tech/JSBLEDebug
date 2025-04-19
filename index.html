@@ -3,19 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KaiTag AR15 & GPS</title>
+    <title>KaiTag AR15 & GPS Map</title>
+    <!-- Add Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: monospace; }
-        canvas { display: block; }
-        #gps-info {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            padding: 5px 10px;
-            background-color: rgba(0, 0, 0, 0.5);
-            border-radius: 5px;
-            font-size: 14px;
+        body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: monospace; display: flex; flex-direction: column; height: 100vh; }
+        #top-container {
+            flex: 1; /* Take up remaining space */
+            position: relative; /* For positioning button/status inside */
+            overflow: hidden; /* Ensure canvas doesn't overflow */
+            min-height: 50%; /* Minimum height */
         }
+        #bottom-container {
+            flex: 1; /* Take up remaining space */
+            min-height: 50%; /* Minimum height */
+            border-top: 1px solid #555; /* Separator line */
+        }
+        #map {
+             height: 100%;
+             width: 100%;
+             background-color: #333; /* Placeholder background */
+        }
+        /* Adjust canvas style if needed, Three.js usually handles this */
+        #top-container canvas { display: block; }
+
+        #gps-info { display: none; } /* Hide old GPS text */
+
         #connect-button {
             position: absolute;
             top: 10px;
@@ -27,6 +42,7 @@
             border: none;
             border-radius: 5px;
             color: #fff;
+            z-index: 10; /* Ensure button is on top of canvas */
         }
         #status {
              position: absolute;
@@ -36,13 +52,30 @@
              background-color: rgba(0, 0, 0, 0.5);
              border-radius: 5px;
              font-size: 14px;
+             z-index: 10; /* Ensure status is on top of canvas */
         }
     </style>
 </head>
 <body>
+    <!-- Containers for split view -->
+    <div id="top-container">
+        <!-- Connect button and status moved inside top container -->
+        <button id="connect-button">Connect KaiTag</button>
+        <div id="status">Status: Disconnected</div>
+        <!-- Canvas will be added here by Three.js -->
+    </div>
+    <div id="bottom-container">
+        <div id="map"></div>
+    </div>
+
+    <!-- Old GPS Info Div (hidden by CSS) -->
     <div id="gps-info">GPS: Acquiring...</div>
-    <button id="connect-button">Connect KaiTag</button>
-    <div id="status">Status: Disconnected</div>
+
+     <!-- Add Leaflet JS -->
+     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
     <script type="importmap">
         {
             "imports": {
@@ -53,113 +86,149 @@
     </script>
     <script type="module">
         import * as THREE from 'three';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // Import GLTFLoader
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         // --- Constants ---
         const SERVICE_UUID = 'b7063e97-8504-4fcb-b0f5-aef2d5903c4d';
-        // Assuming the DMP stream contains quaternion data. Adjust if there's a specific quaternion characteristic.
         const QUATERNION_CHARACTERISTIC_UUID = '71fa0f31-bcc7-42f2-bb57-a9810b436231';
 
         // --- DOM Elements ---
-        const gpsInfoDiv = document.getElementById('gps-info');
+        // const gpsInfoDiv = document.getElementById('gps-info'); // No longer used directly
         const connectButton = document.getElementById('connect-button');
         const statusDiv = document.getElementById('status');
+        const topContainer = document.getElementById('top-container');
+        const mapContainer = document.getElementById('map');
 
         // --- State ---
         let device = null;
         let quaternionCharacteristic = null;
-        let ar15Model = null; // Changed from cube
+        let ar15Model = null;
         let scene = null;
         let camera = null;
         let renderer = null;
-        const targetQuaternion = new THREE.Quaternion(); // Target orientation from BLE
-        const displayQuaternion = new THREE.Quaternion(); // Smoothly interpolated orientation for display
+        const targetQuaternion = new THREE.Quaternion();
+        const displayQuaternion = new THREE.Quaternion();
+        let map = null; // Leaflet map instance
+        let gpsMarker = null; // Leaflet marker instance
+        let firstGpsUpdate = true;
 
         // --- 3D Setup ---
         function initThreeJS() {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
 
-            // Basic lighting
-            const ambientLight = new THREE.AmbientLight(0x404040, 3); // Increased intensity
+            // Get dimensions of the top container
+            const width = topContainer.clientWidth;
+            const height = topContainer.clientHeight;
+
+            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            topContainer.appendChild(renderer.domElement); // Append canvas to top container
+
+            // Lighting (Increased intensity)
+            const ambientLight = new THREE.AmbientLight(0x404040, 3);
             scene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0); // Increased intensity
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
             directionalLight.position.set(1, 1, 1).normalize();
             scene.add(directionalLight);
             const directionalLight2 = new THREE.DirectionalLight(0xffffff, 1.0);
-            directionalLight2.position.set(-1, -1, -1).normalize(); // Light from opposite direction
+            directionalLight2.position.set(-1, -1, -1).normalize();
             scene.add(directionalLight2);
 
             // Load AR15 Model
             const loader = new GLTFLoader();
-            const modelPath = 'models/ar15.glb'; // Assumed path - CHANGE IF DIFFERENT
+            const modelPath = 'models/ar15.glb';
             loader.load(
                 modelPath,
                 function (gltf) {
-                    ar15Model = gltf.scene; // Assign the loaded scene graph
+                    ar15Model = gltf.scene;
                     console.log(`Loaded ${modelPath}`);
-                    console.log('Model original scale:', ar15Model.scale);
-                    console.log('Model original position:', ar15Model.position);
-
-                    // Adjust scale, position, rotation of the loaded model
-                    ar15Model.scale.set(10, 10, 10); // Increase scale 10x
-                    ar15Model.position.set(0, 0, 0); // Start at origin
-                    // ar15Model.rotation.set(0, 0, 0); // Reset rotation if needed
-
-                    console.log('Model adjusted scale:', ar15Model.scale);
-                    console.log('Model adjusted position:', ar15Model.position);
-
+                    // Adjust scale and position
+                    ar15Model.scale.set(10, 10, 10); // Scale from previous step
+                    ar15Model.position.set(0, 0, 0);
                     scene.add(ar15Model);
                     console.log('Model added to scene.');
                 },
-                undefined, // Progress callback (optional)
+                undefined,
                 function (error) {
                     console.error(`Error loading ${modelPath}:`, error);
                     statusDiv.textContent = `Status: Error loading 3D model! Check console.`;
-                    // Optionally add a placeholder cube if loading fails
                     const geometry = new THREE.BoxGeometry(1, 1, 1);
                     const material = new THREE.MeshStandardMaterial({color: 0xdddddd});
-                    ar15Model = new THREE.Mesh(geometry, material); // Use ar15Model variable
-                    scene.add(ar15Model); // Add placeholder
+                    ar15Model = new THREE.Mesh(geometry, material);
+                    scene.add(ar15Model);
                     console.log('Placeholder cube added due to load error.');
                 }
             );
 
-            camera.position.z = 10; // Move camera further back
+            camera.position.z = 10; // Keep camera distance
             console.log('Camera position:', camera.position);
 
             animate();
-            window.addEventListener('resize', onWindowResize, false);
+            // Note: Resize handled by global window resize listener
         }
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+        // --- Map Setup ---
+        function initMap() {
+            // Initial coordinates (e.g., center of the world)
+            const initialCoords = [0, 0];
+            map = L.map(mapContainer).setView(initialCoords, 2); // Initialize map in the container
+
+            // Add Tile Layer (OpenStreetMap)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+
+             // Add Marker (initially hidden or at 0,0)
+            gpsMarker = L.circleMarker(initialCoords, {
+                radius: 8,
+                fillColor: "#00ff00", // Green
+                color: "#000",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+            gpsMarker.bindPopup("Your Location");
+
+            console.log("Map initialized");
         }
+
+
+        function onWindowResize() {
+             // Update 3D view
+             if (camera && renderer && topContainer) {
+                const width = topContainer.clientWidth;
+                const height = topContainer.clientHeight;
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+                renderer.setSize(width, height);
+                console.log("Resized 3D view");
+             }
+
+            // Update map view
+            if (map) {
+                map.invalidateSize(); // Recalculate map size
+                console.log("Resized map view");
+            }
+        }
+        window.addEventListener('resize', onWindowResize, false);
 
         function animate() {
             requestAnimationFrame(animate);
-            // console.log('Animate loop running'); // Uncomment to flood console, confirms loop runs
 
-            // Smoothly interpolate the model's rotation towards the target quaternion
-            displayQuaternion.slerp(targetQuaternion, 0.1); // Adjust the 0.1 factor for more/less smoothing
-
-            // Apply rotation to the loaded model IF it exists
             if (ar15Model) {
-                 // Apply the base orientation first (adjust if model isn't oriented correctly)
-                 // Example: Rotate model 90 degrees around Y axis if it loads sideways
-                 const baseOrientation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); // Adjust axis/angle as needed
-                 const finalQuaternion = baseOrientation.multiply(displayQuaternion); // Apply BLE rotation on top of base rotation
-                 ar15Model.setRotationFromQuaternion(finalQuaternion);
-                 // Alternatively, if the model loads in the correct base orientation:
-                 // ar15Model.setRotationFromQuaternion(displayQuaternion);
+                // Smoothly interpolate the model's rotation
+                displayQuaternion.slerp(targetQuaternion, 0.1);
+                // Apply base rotation if needed (adjust based on your model)
+                const baseOrientation = new THREE.Quaternion() //.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); // Keep base rotation if needed or remove
+                const finalQuaternion = baseOrientation.multiply(displayQuaternion);
+                ar15Model.setRotationFromQuaternion(finalQuaternion);
             }
 
-            renderer.render(scene, camera);
+            if (renderer && scene && camera) { // Ensure Three.js is initialized
+                renderer.render(scene, camera);
+            }
         }
 
         // --- GPS ---
@@ -167,12 +236,31 @@
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(
                     (position) => {
-                        const lat = position.coords.latitude.toFixed(6);
-                        const lon = position.coords.longitude.toFixed(6);
-                        gpsInfoDiv.textContent = `GPS: ${lat}, ${lon}`;
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        const coords = [lat, lon];
+
+                        // Update map and marker
+                        if (map && gpsMarker) {
+                            gpsMarker.setLatLng(coords);
+                            if (firstGpsUpdate) {
+                                map.setView(coords, 15); // Zoom in on first update
+                                firstGpsUpdate = false;
+                                console.log("GPS Acquired, centering map.");
+                            }
+                            // Optionally keep centering map on every update:
+                            // map.panTo(coords);
+                        } else {
+                             console.log("GPS update received, but map not ready yet.");
+                        }
+
+                        // Log coordinates (optional)
+                         // console.log(`GPS Updated: ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
+
                     },
                     (error) => {
-                        gpsInfoDiv.textContent = `GPS Error: ${error.message}`;
+                        // Display error on the status div maybe?
+                        statusDiv.textContent = `Status: GPS Error - ${error.message}`;
                         console.error("Geolocation error:", error);
                     },
                     {
@@ -182,7 +270,8 @@
                     }
                 );
             } else {
-                gpsInfoDiv.textContent = "GPS not supported";
+                statusDiv.textContent = "Status: GPS not supported";
+                console.error("Geolocation not supported by this browser.");
             }
         }
 
@@ -228,7 +317,9 @@
             if (quaternionCharacteristic) {
                 quaternionCharacteristic.removeEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
             }
-            device.removeEventListener('gattserverdisconnected', onDisconnected);
+            if(device) { // Check if device exists before removing listener
+                 device.removeEventListener('gattserverdisconnected', onDisconnected);
+            }
             device = null;
             quaternionCharacteristic = null;
             connectButton.textContent = 'Connect KaiTag';
@@ -240,7 +331,6 @@
             if (!device || !device.gatt.connected) return;
             statusDiv.textContent = 'Status: Disconnecting...';
             try {
-                 // Stop notifications before disconnecting
                 if (quaternionCharacteristic && quaternionCharacteristic.properties.notify) {
                     await quaternionCharacteristic.stopNotifications();
                     quaternionCharacteristic.removeEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
@@ -250,33 +340,23 @@
             } catch(error) {
                 statusDiv.textContent = `Status: Error disconnecting - ${error.message}`;
                 console.error('BLE Disconnect Error:', error);
-                // Force cleanup even if stopNotifications failed
                 onDisconnected();
             }
 
         }
 
         function handleCharacteristicValueChanged(event) {
-            const value = event.target.value; // This is a DataView
-             // IMPORTANT: Assuming quaternion data is 4 floats (w, x, y, z) starting at byte 0
-             // Adjust byteOffset and isLittleEndian based on KaiTag firmware
+            const value = event.target.value;
              if (value.byteLength >= 16) {
                  try {
-                    // --- IMPORTANT ---
-                    // Check the order (w,x,y,z or x,y,z,w) and endianness from KaiTag firmware
-                    // Example: getFloat32(offset, isLittleEndian)
-                    const w = value.getFloat32(0, true); // Assuming little-endian, W first
+                    const w = value.getFloat32(0, true);
                     const x = value.getFloat32(4, true);
                     const y = value.getFloat32(8, true);
                     const z = value.getFloat32(12, true);
-
-                     // Update the target quaternion for animation loop
-                     // Note: Three.js quaternion set() is (x, y, z, w)
                      targetQuaternion.set(x, y, z, w).normalize();
                  } catch (e) {
                      console.error("Error parsing quaternion data:", e);
                  }
-
             } else {
                  console.warn(`Received data length ${value.byteLength} is less than expected 16 bytes for quaternion.`);
              }
@@ -293,6 +373,7 @@
 
 
         // --- Initialization ---
+        initMap(); // Initialize map first
         initThreeJS();
         initGPS();
 
