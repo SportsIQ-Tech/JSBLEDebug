@@ -84,11 +84,14 @@
             document.body.appendChild(renderer.domElement);
 
             // Basic lighting
-            const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+            const ambientLight = new THREE.AmbientLight(0x404040, 3); // Increased intensity
             scene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0); // Increased intensity
             directionalLight.position.set(1, 1, 1).normalize();
             scene.add(directionalLight);
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight2.position.set(-1, -1, -1).normalize(); // Light from opposite direction
+            scene.add(directionalLight2);
 
             // Load AR15 Model
             const loader = new GLTFLoader();
@@ -97,11 +100,20 @@
                 modelPath,
                 function (gltf) {
                     ar15Model = gltf.scene; // Assign the loaded scene graph
-                    // Optional: Adjust scale, position, rotation of the loaded model if needed
-                    ar15Model.scale.set(0.1, 0.1, 0.1); // Example: scale down if it's too big
-                    ar15Model.position.set(0, -0.5, 0); // Example: adjust vertical position
-                    scene.add(ar15Model);
                     console.log(`Loaded ${modelPath}`);
+                    console.log('Model original scale:', ar15Model.scale);
+                    console.log('Model original position:', ar15Model.position);
+
+                    // Adjust scale, position, rotation of the loaded model
+                    ar15Model.scale.set(10, 10, 10); // Increase scale 10x
+                    ar15Model.position.set(0, 0, 0); // Start at origin
+                    // ar15Model.rotation.set(0, 0, 0); // Reset rotation if needed
+
+                    console.log('Model adjusted scale:', ar15Model.scale);
+                    console.log('Model adjusted position:', ar15Model.position);
+
+                    scene.add(ar15Model);
+                    console.log('Model added to scene.');
                 },
                 undefined, // Progress callback (optional)
                 function (error) {
@@ -112,10 +124,12 @@
                     const material = new THREE.MeshStandardMaterial({color: 0xdddddd});
                     ar15Model = new THREE.Mesh(geometry, material); // Use ar15Model variable
                     scene.add(ar15Model); // Add placeholder
+                    console.log('Placeholder cube added due to load error.');
                 }
             );
 
-            camera.position.z = 3;
+            camera.position.z = 10; // Move camera further back
+            console.log('Camera position:', camera.position);
 
             animate();
             window.addEventListener('resize', onWindowResize, false);
@@ -129,6 +143,7 @@
 
         function animate() {
             requestAnimationFrame(animate);
+            // console.log('Animate loop running'); // Uncomment to flood console, confirms loop runs
 
             // Smoothly interpolate the model's rotation towards the target quaternion
             displayQuaternion.slerp(targetQuaternion, 0.1); // Adjust the 0.1 factor for more/less smoothing
