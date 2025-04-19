@@ -9,7 +9,13 @@
      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
      crossorigin=""/>
         <style>
-        body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: monospace; display: flex; flex-direction: column; height: 100vh; }
+        body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: monospace; }
+        #main-content {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100%; /* Ensure width is also set */
+        }
         #top-container {
             flex: 1; /* Take up remaining space */
             position: relative; /* For positioning button/status inside */
@@ -54,18 +60,72 @@
              font-size: 14px;
              z-index: 10; /* Ensure status is on top of canvas */
         }
+
+        /* Team Selection Overlay */
+        #team-selection-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000; /* Ensure it's on top of everything */
+            color: #fff;
+            font-size: 24px;
+        }
+        #team-selection-overlay button {
+            font-size: 20px;
+            padding: 15px 30px;
+            margin: 20px;
+            cursor: pointer;
+            border: 2px solid;
+            border-radius: 8px;
+            color: #fff;
+            background-color: transparent;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        #team-red-button {
+            border-color: #ff4d4d;
+        }
+        #team-red-button:hover {
+            background-color: #ff4d4d;
+        }
+        #team-blue-button {
+            border-color: #4da6ff;
+        }
+        #team-blue-button:hover {
+            background-color: #4da6ff;
+        }
+        .hidden {
+             display: none !important;
+        }
         </style>
     </head>
     <body>
-    <!-- Containers for split view -->
-    <div id="top-container">
-        <!-- Connect button and status moved inside top container -->
-        <button id="connect-button">Connect KaiTag</button>
-        <div id="status">Status: Disconnected</div>
-        <!-- Canvas will be added here by Three.js -->
+    <!-- Move containers inside a main wrapper -->
+    <div id="main-content" class="hidden">
+        <div id="top-container">
+            <!-- Connect button and status moved inside top container -->
+            <button id="connect-button">Connect KaiTag</button>
+            <div id="status">Status: Disconnected</div>
+            <!-- Canvas will be added here by Three.js -->
+        </div>
+        <div id="bottom-container">
+            <div id="map"></div>
+        </div>
     </div>
-    <div id="bottom-container">
-        <div id="map"></div>
+
+    <!-- Team Selection Overlay -->
+    <div id="team-selection-overlay">
+        <h2>Choose Your Team</h2>
+        <div>
+            <button id="team-red-button">Join Team Red</button>
+            <button id="team-blue-button">Join Team Blue</button>
+        </div>
     </div>
 
     <!-- Old GPS Info Div (hidden by CSS) -->
@@ -99,6 +159,10 @@
 
         // --- DOM Elements ---
         // const gpsInfoDiv = document.getElementById('gps-info'); // No longer used directly
+        const mainContentDiv = document.getElementById('main-content');
+        const teamOverlayDiv = document.getElementById('team-selection-overlay');
+        const teamRedButton = document.getElementById('team-red-button');
+        const teamBlueButton = document.getElementById('team-blue-button');
         const connectButton = document.getElementById('connect-button');
         const statusDiv = document.getElementById('status');
         const topContainer = document.getElementById('top-container');
@@ -121,8 +185,8 @@
         const forwardVector = new THREE.Vector3(); // Reusable vector for direction calculation
         let socket = null; // Changed from webSocket
         let myClientId = null;
-        let clientStates = {}; // { clientId: { lat: number, lon: number, bearing: number, timestamp: number }, ... }
-        // No WS_URL needed when served from same origin
+        let clientStates = {}; // { clientId: { lat, lon, bearing, timestamp, team }, ... }
+        let myTeam = null; // 'red' or 'blue'
 
         // Throttling for bearing updates
         let lastBearingSendTime = 0;
@@ -256,21 +320,43 @@
                 const latLng = L.latLng(state.lat, state.lon);
                 const endPointLatLng = calculateDestinationPoint(state.lat, state.lon, state.bearing, lineDistanceMeters);
                 const isLocal = (clientId === myClientId);
+                const team = state.team || 'blue'; // Default to blue if team not set
+
+                // --- Team Filtering Logic ---
+                if (!isLocal && team !== myTeam) {
+                    // If this client is not the local player AND not on the same team, skip drawing/updating
+                    // But make sure we mark it as seen if it was previously drawn, so it gets removed later if needed.
+                     currentOtherIds.delete(clientId);
+                    continue; // Skip to the next client
+                }
+
+                // Determine colors
+                let markerColor = (team === 'red') ? "#ff0000" : "#0000ff"; // Red or Blue
+                let lineColor = markerColor;
+                let popupText = `Team ${team.charAt(0).toUpperCase() + team.slice(1)} (${clientId.substring(0, 6)})`;
 
                 if (isLocal) {
+                    markerColor = "#00ff00"; // Always green for local player
+                    lineColor = "#00ff00";
+                    popupText = "You";
+
                     // Update local marker and line (create if they don't exist)
                     if (!localGpsMarker) {
                          localGpsMarker = L.circleMarker(latLng, {
-                            radius: 8, fillColor: "#00ff00", color: "#000",
+                            radius: 8, fillColor: markerColor, color: "#000",
                             weight: 1, opacity: 1, fillOpacity: 0.8
-                         }).addTo(map).bindPopup("You");
+                         }).addTo(map).bindPopup(popupText);
                          // Create local direction line associated with marker
                          localGpsMarker.directionLine = L.polyline([latLng, endPointLatLng], {
-                            color: '#00ff00', weight: 3
+                            color: lineColor, weight: 3
                          }).addTo(map);
                     } else {
                         localGpsMarker.setLatLng(latLng);
+                        // Update style if marker exists but color needs changing (unlikely for local)
+                        localGpsMarker.setStyle({ fillColor: markerColor });
                         localGpsMarker.directionLine.setLatLngs([latLng, endPointLatLng]);
+                        localGpsMarker.directionLine.setStyle({ color: lineColor });
+                        localGpsMarker.setPopupContent(popupText);
                     }
                     // Center map on local user on first GPS update
                     if (firstGpsUpdate) {
@@ -284,16 +370,19 @@
                     if (otherClientMarkers[clientId]) {
                         // Existing other client
                         otherClientMarkers[clientId].marker.setLatLng(latLng);
+                        otherClientMarkers[clientId].marker.setStyle({ fillColor: markerColor });
+                        otherClientMarkers[clientId].marker.setPopupContent(popupText);
                         otherClientMarkers[clientId].line.setLatLngs([latLng, endPointLatLng]);
+                        otherClientMarkers[clientId].line.setStyle({ color: lineColor });
                     } else {
                         // New other client
                         const marker = L.circleMarker(latLng, {
-                            radius: 6, fillColor: "#0000ff", color: "#000", // Blue
+                            radius: 6, fillColor: markerColor, color: "#000",
                             weight: 1, opacity: 1, fillOpacity: 0.7
-                        }).addTo(map).bindPopup(`Client ${clientId.substring(0, 6)}`);
+                        }).addTo(map).bindPopup(popupText);
 
                         const line = L.polyline([latLng, endPointLatLng], {
-                            color: '#0000ff', weight: 3 // Blue
+                            color: lineColor, weight: 3
                         }).addTo(map);
                         otherClientMarkers[clientId] = { marker, line };
                         console.log(`Added other client ${clientId} to map`);
@@ -454,22 +543,25 @@
                         const lon = position.coords.longitude;
                         const bearing = getLocalBearing(); // Get current bearing
 
-                        // Send local state update to server
-                        sendSocketIOMessage('update_state', {
-                            lat: lat,
-                            lon: lon,
-                            bearing: bearing
-                            // timestamp: Date.now() // Optional: server can handle this
-                        });
+                        // Only send update if a team has been selected
+                        if (myTeam) {
+                            const statePayload = {
+                                lat: lat,
+                                lon: lon,
+                                bearing: bearing,
+                                team: myTeam // Include team info
+                            };
+                            sendSocketIOMessage('update_state', statePayload);
 
-                        // Update local state immediately for responsiveness (server will echo back)
-                        if(myClientId) {
-                             if (!clientStates[myClientId]) clientStates[myClientId] = {};
-                             clientStates[myClientId].lat = lat;
-                             clientStates[myClientId].lon = lon;
-                             clientStates[myClientId].bearing = bearing;
-                             clientStates[myClientId].timestamp = Date.now();
-                             updateMapMarkers(); // Update map immediately with local change
+                            // Update local state immediately
+                            if(myClientId) {
+                                if (!clientStates[myClientId]) clientStates[myClientId] = {};
+                                Object.assign(clientStates[myClientId], statePayload);
+                                clientStates[myClientId].timestamp = Date.now(); // Use local time for immediate update
+                                updateMapMarkers(); // Update map immediately with local change
+                            }
+                        } else {
+                            console.log("GPS Update received, but no team selected yet.")
                         }
 
                     },
@@ -577,6 +669,37 @@
         }
 
         // --- Event Listeners ---
+        function handleTeamSelection(selectedTeam) {
+            console.log('handleTeamSelection called with:', selectedTeam);
+            console.log('Overlay Element:', teamOverlayDiv);
+            console.log('Main Content Element:', mainContentDiv);
+             myTeam = selectedTeam;
+             console.log(`Team selected: ${myTeam}`);
+             teamOverlayDiv.classList.add('hidden');
+             mainContentDiv.classList.remove('hidden');
+
+             // Force map and canvas resize after showing the main content
+             // Use setTimeout to ensure the browser has rendered the layout changes
+             setTimeout(() => {
+                 console.log("Forcing resize after team selection...");
+                 onWindowResize();
+             }, 0); // Delay of 0 ms is often enough
+
+             // Trigger initial state update if GPS is already running
+             // (but usually initGPS will handle the first update)
+             // You could potentially force an update here if needed:
+             // if (navigator.geolocation...) forceGPSUpdate();
+        }
+
+        // Ensure elements exist before adding listeners (though placement should be fine)
+        if (teamRedButton && teamBlueButton) {
+             teamRedButton.addEventListener('click', () => handleTeamSelection('red'));
+             teamBlueButton.addEventListener('click', () => handleTeamSelection('blue'));
+             console.log("Team selection button listeners attached.");
+        } else {
+             console.error("Could not find team selection buttons!");
+        }
+
         connectButton.addEventListener('click', () => {
             if (device && device.gatt.connected) {
                 disconnectDevice();

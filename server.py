@@ -70,12 +70,21 @@ def handle_update_state(data):
     client_sid = request.sid
     if isinstance(data, dict):
         # Update or add state for this client
-        CLIENT_STATES[client_sid] = {
-            "lat": data.get("lat", 0),
-            "lon": data.get("lon", 0),
-            "bearing": data.get("bearing", 0),
-            "timestamp": time.time() # Use server time
-        }
+        # Ensure state exists before trying to update (might receive update before connect fully establishes state)
+        if client_sid not in CLIENT_STATES:
+            CLIENT_STATES[client_sid] = {}
+
+        CLIENT_STATES[client_sid]["lat"] = data.get("lat", CLIENT_STATES[client_sid].get("lat", 0))
+        CLIENT_STATES[client_sid]["lon"] = data.get("lon", CLIENT_STATES[client_sid].get("lon", 0))
+        CLIENT_STATES[client_sid]["bearing"] = data.get("bearing", CLIENT_STATES[client_sid].get("bearing", 0))
+        # Update team only if provided in this update
+        if "team" in data:
+            CLIENT_STATES[client_sid]["team"] = data.get("team", "blue") # Default to blue
+        elif "team" not in CLIENT_STATES[client_sid]: # Set default if not set previously
+            CLIENT_STATES[client_sid]["team"] = "blue"
+
+        CLIENT_STATES[client_sid]["timestamp"] = time.time() # Use server time
+
         logging.info(f"Updated state for {client_sid}: {CLIENT_STATES[client_sid]}")
         # Broadcast the updated states to ALL clients (including sender for consistency)
         emit('all_states', CLIENT_STATES, broadcast=True)
@@ -90,8 +99,8 @@ def handle_update_bearing(bearing):
     if client_sid not in CLIENT_STATES:
         # Client might have connected but not sent initial state yet, or state was cleared
         logging.warning(f"Received bearing update from {client_sid} but no existing state found.")
-        # Optionally, create a default state here if desired, or just ignore
-        CLIENT_STATES[client_sid] = {"lat": 0, "lon": 0, "bearing": 0, "timestamp": 0} # Create dummy state
+        # Create a default state (including default team)
+        CLIENT_STATES[client_sid] = {"lat": 0, "lon": 0, "bearing": 0, "timestamp": 0, "team": "blue"}
         # return # Or just return if we don't want to create dummy state
 
     if isinstance(bearing, (int, float)):
