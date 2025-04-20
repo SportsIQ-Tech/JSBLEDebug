@@ -14,7 +14,7 @@ app.config['SECRET_KEY'] = os.urandom(24)
 socketio = SocketIO(app, async_mode='eventlet')
 
 # In-memory storage for client states
-# CLIENT_STATES: { client_sid: { lat, lon, bearing, timestamp, team, kaiTagConnected } }
+# CLIENT_STATES: { client_sid: { lat, lon, bearing, timestamp, team, kaiTagConnected, isDead } }
 CLIENT_STATES = {}
 
 # --- HTTP Routes ---
@@ -76,7 +76,8 @@ def handle_update_state(data):
         CLIENT_STATES[client_sid]["lat"] = data.get("lat", CLIENT_STATES[client_sid].get("lat", 0))
         CLIENT_STATES[client_sid]["lon"] = data.get("lon", CLIENT_STATES[client_sid].get("lon", 0))
         CLIENT_STATES[client_sid]["bearing"] = data.get("bearing", CLIENT_STATES[client_sid].get("bearing", 0))
-        CLIENT_STATES[client_sid]["kaiTagConnected"] = data.get("kaiTagConnected", CLIENT_STATES[client_sid].get("kaiTagConnected", True)) # Default to true if missing
+        CLIENT_STATES[client_sid]["kaiTagConnected"] = data.get("kaiTagConnected", CLIENT_STATES[client_sid].get("kaiTagConnected", True))
+        CLIENT_STATES[client_sid]["isDead"] = data.get("isDead", CLIENT_STATES[client_sid].get("isDead", False))
         # Update team only if provided or not already set
         if "team" in data:
             CLIENT_STATES[client_sid]["team"] = data.get("team", "blue")
@@ -96,8 +97,11 @@ def handle_update_bearing(bearing):
     client_sid = request.sid
     if client_sid not in CLIENT_STATES:
         logging.warning(f"Received bearing update from {client_sid} but no existing state found.")
-        # Create a default state including kaiTagConnected
-        CLIENT_STATES[client_sid] = {"lat": 0, "lon": 0, "bearing": 0, "timestamp": 0, "team": "blue", "kaiTagConnected": True}
+        # Create a default state including kaiTagConnected and isDead
+        CLIENT_STATES[client_sid] = {
+            "lat": 0, "lon": 0, "bearing": 0, "timestamp": 0,
+            "team": "blue", "kaiTagConnected": True, "isDead": False
+            }
 
     if isinstance(bearing, (int, float)):
         current_time = time.time()

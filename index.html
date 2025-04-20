@@ -103,6 +103,29 @@
         .hidden {
              display: none !important;
         }
+        /* Custom DivIcon styles */
+        .leaflet-div-icon {
+            background: transparent;
+            border: none;
+        }
+        .player-marker {
+            text-align: center;
+            font-weight: bold;
+            line-height: 16px;
+            font-size: 18px;
+        }
+        .player-marker-circle {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 1px solid black;
+        }
+        .player-marker-x {
+             /* Style for the X marker */
+             width: 16px; /* Match circle size */
+             height: 16px;
+             line-height: 16px; /* Vertically center X */
+        }
         </style>
     </head>
     <body>
@@ -190,6 +213,9 @@
         let localKaiTagConnected = false; // Track local device connection status
         let reconnectIntervalId = null; // Timer ID for auto-reconnect attempts
         const RECONNECT_DELAY = 5000; // 5 seconds
+        let localIsDead = false;
+        const deadPitchThreshold = -75 * (Math.PI / 180); // Below -75 degrees pitch = dead (radians)
+        const euler = new THREE.Euler(); // Reusable Euler for pitch calculation
 
         // Throttling for bearing updates
         let lastBearingSendTime = 0;
@@ -214,6 +240,7 @@
                 lon: lon,
                 bearing: getLocalBearing(), // Get current bearing
                 team: myTeam,
+                isDead: localIsDead, // Include dead status
                 kaiTagConnected: localKaiTagConnected // Include connection status
             };
             sendSocketIOMessage('update_state', statePayload);
@@ -362,49 +389,61 @@
                 if (!isLocal && team !== myTeam) {
                     // If this client is not the local player AND not on the same team, skip drawing/updating
                     // But make sure we mark it as seen if it was previously drawn, so it gets removed later if needed.
-                     currentOtherIds.delete(clientId);
+                    currentOtherIds.delete(clientId);
                     continue; // Skip to the next client
                 }
 
+                const isDead = state.isDead || false;
+                const isConnected = state.kaiTagConnected !== undefined ? state.kaiTagConnected : true;
+
                 // Determine colors
                 let markerColor;
-                if (!isKaiTagConnected && !isLocal) {
+                if (!isConnected && !isLocal) {
                     markerColor = "#808080"; // Gray for disconnected non-local players
                 } else {
                     markerColor = (team === 'red') ? "#ff0000" : "#0000ff"; // Team color otherwise
                 }
                 let lineColor = markerColor;
                 let popupText = `Team ${team.charAt(0).toUpperCase() + team.slice(1)} (${clientId.substring(0, 6)})`;
-                if (!isKaiTagConnected && !isLocal) {
+                if (!isConnected && !isLocal) {
                     popupText += " (Disconnected)";
+                }
+                if (isDead) {
+                    popupText += " (Dead)";
                 }
 
                 if (isLocal) {
                     markerColor = "#00ff00"; // Always green for local player
-                    lineColor = "#00ff00";
+                    lineColor = markerColor; // Use marker color (green)
                     popupText = "You";
+                    if (localIsDead) { popupText += " (Dead)"; }
 
                     // Update local marker and line (create if they don't exist)
                     if (!localGpsMarker) {
-                         localGpsMarker = L.circleMarker(latLng, {
-                            radius: 8, fillColor: markerColor, color: "#000",
-                            weight: 1, opacity: 1, fillOpacity: 0.8
-                         }).addTo(map).bindPopup(popupText);
-                         // Create local direction line associated with marker
-                         localGpsMarker.directionLine = L.polyline([latLng, endPointLatLng], {
+                        localGpsMarker = L.marker(latLng, {
+                            icon: createMarkerIcon(true, localIsDead, true, myTeam)
+                        }).addTo(map).bindPopup(popupText);
+
+                        localGpsMarker.directionLine = L.polyline([], { // Start empty
                             color: lineColor, weight: 3
-                         }).addTo(map);
+                        }).addTo(map);
                     } else {
                         localGpsMarker.setLatLng(latLng);
                         // Update style if marker exists but color needs changing (unlikely for local)
-                        localGpsMarker.setStyle({ fillColor: markerColor });
-                        localGpsMarker.directionLine.setLatLngs([latLng, endPointLatLng]);
+                        localGpsMarker.setIcon(createMarkerIcon(true, localIsDead, true, myTeam));
                         localGpsMarker.directionLine.setStyle({ color: lineColor });
                         localGpsMarker.setPopupContent(popupText);
                     }
+                    // Update or hide local line based on dead status
+                    if (localIsDead || !isConnected) {
+                        localGpsMarker.directionLine.setLatLngs([]); // Empty the line
+                    } else {
+                        localGpsMarker.directionLine.setLatLngs([latLng, endPointLatLng]);
+                    }
+
                     // Center map on local user on first GPS update
                     if (firstGpsUpdate) {
-                        map.setView(latLng, 15);
+                        map.setView(latLng, 30);
                         firstGpsUpdate = false;
                         console.log("Local GPS Acquired, centering map.");
                     }
@@ -414,20 +453,28 @@
                     if (otherClientMarkers[clientId]) {
                         // Existing other client
                         otherClientMarkers[clientId].marker.setLatLng(latLng);
-                        otherClientMarkers[clientId].marker.setStyle({ fillColor: markerColor });
+                        otherClientMarkers[clientId].marker.setIcon(createMarkerIcon(false, isDead, isConnected, team));
                         otherClientMarkers[clientId].marker.setPopupContent(popupText);
-                        otherClientMarkers[clientId].line.setLatLngs([latLng, endPointLatLng]);
                         otherClientMarkers[clientId].line.setStyle({ color: lineColor });
+                        // Update or hide remote line
+                        if (isDead || !isConnected) {
+                            otherClientMarkers[clientId].line.setLatLngs([]);
+                        } else {
+                            otherClientMarkers[clientId].line.setLatLngs([latLng, endPointLatLng]);
+                        }
                     } else {
                         // New other client
-                        const marker = L.circleMarker(latLng, {
-                            radius: 6, fillColor: markerColor, color: "#000",
-                            weight: 1, opacity: 1, fillOpacity: 0.7
+                        const marker = L.marker(latLng, {
+                            icon: createMarkerIcon(false, isDead, isConnected, team)
                         }).addTo(map).bindPopup(popupText);
 
                         const line = L.polyline([latLng, endPointLatLng], {
                             color: lineColor, weight: 3
                         }).addTo(map);
+                        // Hide line initially if dead/disconnected
+                        if (isDead || !isConnected) {
+                            line.setLatLngs([]);
+                        }
                         otherClientMarkers[clientId] = { marker, line };
                         console.log(`Added other client ${clientId} to map`);
                     }
@@ -538,6 +585,7 @@
             requestAnimationFrame(animate);
 
             let modelRotated = false;
+            let wasDead = localIsDead; // Track previous dead state
             let currentBearing = 0;
             if (ar15Model) {
                 // Smoothly interpolate the model's rotation
@@ -548,6 +596,11 @@
                 ar15Model.setRotationFromQuaternion(finalQuaternion);
                 modelRotated = true;
                 currentBearing = getLocalBearing(); // Get bearing after rotation
+
+                // --- Dead State Check ---
+                euler.setFromQuaternion(displayQuaternion, 'YXZ'); // Use display quat, YXZ order common
+                const pitch = euler.x; // Pitch around X axis
+                localIsDead = (pitch < deadPitchThreshold);
             }
 
             if (renderer && scene && camera) {
@@ -560,8 +613,18 @@
                 const startPoint = localGpsMarker.getLatLng();
                 if (startPoint) { // Ensure we have a valid LatLng
                     const endPointLatLng = calculateDestinationPoint(startPoint.lat, startPoint.lng, currentBearing, lineDistanceMeters);
-                    localGpsMarker.directionLine.setLatLngs([ [startPoint.lat, startPoint.lng], endPointLatLng ]);
-                    localLineUpdated = true;
+                    // Only show line if NOT dead and connected
+                    if (!localIsDead && localKaiTagConnected) {
+                        localGpsMarker.directionLine.setLatLngs([ [startPoint.lat, startPoint.lng], endPointLatLng ]);
+                    } else {
+                        localGpsMarker.directionLine.setLatLngs([]); // Hide line
+                    }
+                    // Update marker icon if dead state changed
+                    if (wasDead !== localIsDead) {
+                        localGpsMarker.setIcon(createMarkerIcon(true, localIsDead, true, myTeam));
+                        // Send update immediately if dead state changed
+                        sendFullStateUpdate();
+                    }
                 }
             }
 
@@ -583,8 +646,11 @@
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(
                     (position) => {
+                        const timestamp = new Date(position.timestamp).toISOString();
                         const lat = position.coords.latitude;
                         const lon = position.coords.longitude;
+                        const accuracy = position.coords.accuracy;
+                        console.log(`[${timestamp}] GPS Update: Lat=${lat.toFixed(6)}, Lon=${lon.toFixed(6)}, Accuracy=${accuracy ? accuracy.toFixed(1)+'m' : 'N/A'}`);
 
                         // Update local state first (for sendFullStateUpdate)
                         if(myClientId) {
@@ -602,12 +668,14 @@
                         }
                     },
                     (error) => {
+                        // Log GPS errors
+                        const timestamp = new Date().toISOString();
+                        console.error(`[${timestamp}] Geolocation error:`, error.message, error.code);
                         statusDiv.textContent = `Status: GPS Error - ${error.message}`;
-                        console.error("Geolocation error:", error);
                     },
                     {
                         enableHighAccuracy: true, // Keep high accuracy
-                        maximumAge: 5000,      // Don't use old positions > 5s
+                        maximumAge: 0,         // Request fresh position every time
                         timeout: 10000         // Give up after 10s
                     }
                 );
@@ -816,6 +884,33 @@
         initThreeJS();
         initGPS();
         connectSocketIO(); // Connect Socket.IO after setting up UI
+
+        // --- Helper: Create Marker Icon ---
+        function createMarkerIcon(isLocal, isDead, isConnected, team) {
+            let iconHtml = '';
+            let color = '#808080'; // Default gray
+
+            if (isLocal) {
+                color = '#00ff00'; // Green for local
+            } else if (isConnected) {
+                color = (team === 'red') ? '#ff0000' : '#0000ff'; // Team color if connected
+            } // else stick with gray for disconnected
+
+            if (isDead) {
+                // X marker
+                iconHtml = `<div class="player-marker player-marker-x" style="color: ${color};">X</div>`;
+            } else {
+                // Circle marker
+                iconHtml = `<div class="player-marker player-marker-circle" style="background-color: ${color};"></div>`;
+            }
+
+            return L.divIcon({
+                html: iconHtml,
+                className: 'leaflet-div-icon', // Base class, styling done inline/via specific classes
+                iconSize: [16, 16],
+                iconAnchor: [8, 8] // Center the icon
+            });
+        }
 
         </script>
     </body>
