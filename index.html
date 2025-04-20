@@ -214,7 +214,7 @@
         let reconnectIntervalId = null; // Timer ID for auto-reconnect attempts
         const RECONNECT_DELAY = 5000; // 5 seconds
         let localIsDead = false;
-        const deadPitchThreshold = -75 * (Math.PI / 180); // Below -75 degrees pitch = dead (radians)
+        const deadPitchThreshold = -55 * (Math.PI / 180); // Below -75 degrees pitch = dead (radians)
         const euler = new THREE.Euler(); // Reusable Euler for pitch calculation
 
         // Throttling for bearing updates
@@ -668,12 +668,12 @@
                         // Center map on first update, pan on subsequent updates
                         if (map && localGpsMarker) {
                             const latLng = L.latLng(lat, lon); // Create LatLng object
+                            // Set view (center and zoom) on all updates
+                            const targetZoom = 30; // Keep the zoom level constant
+                            map.setView(latLng, targetZoom);
                             if (firstGpsUpdate) {
-                                map.setView(latLng, 30); // Zoom in on first update
-                                firstGpsUpdate = false;
-                                console.log("Local GPS Acquired, centering map.");
-                            } else {
-                                map.panTo(latLng); // Pan smoothly to new location
+                                 console.log("Local GPS Acquired, centering map.");
+                                 firstGpsUpdate = false; // Still track first update for logging
                             }
                         }
 
