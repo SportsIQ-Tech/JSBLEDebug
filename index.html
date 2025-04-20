@@ -441,11 +441,13 @@
                         localGpsMarker.directionLine.setLatLngs([latLng, endPointLatLng]);
                     }
 
-                    // Center map on local user on first GPS update
+                    // Center map on first update, pan on subsequent updates
                     if (firstGpsUpdate) {
-                        map.setView(latLng, 30);
+                        map.setView(latLng, 30); // Zoom in on first update
                         firstGpsUpdate = false;
                         console.log("Local GPS Acquired, centering map.");
+                    } else {
+                        map.panTo(latLng); // Pan smoothly to new location
                     }
 
                 } else {
@@ -630,11 +632,15 @@
 
             // Throttle sending bearing updates via Socket.IO
             const now = Date.now();
+            const bearingChanged = Math.abs(currentBearing - lastSentBearing) > bearingUpdateThreshold || lastSentBearing < 0;
+            const deadStateChanged = wasDead !== localIsDead;
+            const enoughTimePassed = now - lastBearingSendTime > bearingUpdateInterval;
+
             if (modelRotated && socket && socket.connected && myClientId &&
-                (Math.abs(currentBearing - lastSentBearing) > bearingUpdateThreshold || lastSentBearing < 0) && // Bearing changed enough or first time
-                (now - lastBearingSendTime > bearingUpdateInterval) ) // Enough time passed
+                enoughTimePassed && (bearingChanged || deadStateChanged) ) // Send if time passed AND (bearing changed OR dead state changed)
             {
-                socket.emit('update_bearing', currentBearing);
+                // Send the FULL state, as it includes the isDead flag
+                sendFullStateUpdate();
                 lastSentBearing = currentBearing;
                 lastBearingSendTime = now;
                 // console.log(`Sent bearing update: ${currentBearing.toFixed(1)}`);
@@ -657,6 +663,18 @@
                              if (!clientStates[myClientId]) clientStates[myClientId] = {};
                              clientStates[myClientId].lat = lat;
                              clientStates[myClientId].lon = lon;
+                        }
+
+                        // Center map on first update, pan on subsequent updates
+                        if (map && localGpsMarker) {
+                            const latLng = L.latLng(lat, lon); // Create LatLng object
+                            if (firstGpsUpdate) {
+                                map.setView(latLng, 30); // Zoom in on first update
+                                firstGpsUpdate = false;
+                                console.log("Local GPS Acquired, centering map.");
+                            } else {
+                                map.panTo(latLng); // Pan smoothly to new location
+                            }
                         }
 
                         // Only send update if a team has been selected
