@@ -14,7 +14,7 @@ app.config['SECRET_KEY'] = os.urandom(24)
 socketio = SocketIO(app, async_mode='eventlet')
 
 # In-memory storage for client states
-# CLIENT_STATES: { client_sid: { lat: number, lon: number, bearing: number, timestamp: number } }
+# CLIENT_STATES: { client_sid: { lat, lon, bearing, timestamp, team, kaiTagConnected } }
 CLIENT_STATES = {}
 
 # --- HTTP Routes ---
@@ -69,26 +69,24 @@ def handle_update_state(data):
     """Handle state update from a client."""
     client_sid = request.sid
     if isinstance(data, dict):
-        # Update or add state for this client
-        # Ensure state exists before trying to update (might receive update before connect fully establishes state)
         if client_sid not in CLIENT_STATES:
             CLIENT_STATES[client_sid] = {}
 
+        # Update state, preserving existing values if not provided
         CLIENT_STATES[client_sid]["lat"] = data.get("lat", CLIENT_STATES[client_sid].get("lat", 0))
         CLIENT_STATES[client_sid]["lon"] = data.get("lon", CLIENT_STATES[client_sid].get("lon", 0))
         CLIENT_STATES[client_sid]["bearing"] = data.get("bearing", CLIENT_STATES[client_sid].get("bearing", 0))
-        # Update team only if provided in this update
+        CLIENT_STATES[client_sid]["kaiTagConnected"] = data.get("kaiTagConnected", CLIENT_STATES[client_sid].get("kaiTagConnected", True)) # Default to true if missing
+        # Update team only if provided or not already set
         if "team" in data:
-            CLIENT_STATES[client_sid]["team"] = data.get("team", "blue") # Default to blue
-        elif "team" not in CLIENT_STATES[client_sid]: # Set default if not set previously
-            CLIENT_STATES[client_sid]["team"] = "blue"
+            CLIENT_STATES[client_sid]["team"] = data.get("team", "blue")
+        elif "team" not in CLIENT_STATES[client_sid]:
+            CLIENT_STATES[client_sid]["team"] = "blue" # Set default team if needed
 
-        CLIENT_STATES[client_sid]["timestamp"] = time.time() # Use server time
+        CLIENT_STATES[client_sid]["timestamp"] = time.time()
 
         logging.info(f"Updated state for {client_sid}: {CLIENT_STATES[client_sid]}")
-        # Broadcast the updated states to ALL clients (including sender for consistency)
         emit('all_states', CLIENT_STATES, broadcast=True)
-        # logging.info(f"Broadcasted states to all clients.")
     else:
         logging.warning(f"Received invalid state update from {client_sid}: {data}")
 
@@ -97,25 +95,22 @@ def handle_update_bearing(bearing):
     """Handle bearing-only update from a client."""
     client_sid = request.sid
     if client_sid not in CLIENT_STATES:
-        # Client might have connected but not sent initial state yet, or state was cleared
         logging.warning(f"Received bearing update from {client_sid} but no existing state found.")
-        # Create a default state (including default team)
-        CLIENT_STATES[client_sid] = {"lat": 0, "lon": 0, "bearing": 0, "timestamp": 0, "team": "blue"}
-        # return # Or just return if we don't want to create dummy state
+        # Create a default state including kaiTagConnected
+        CLIENT_STATES[client_sid] = {"lat": 0, "lon": 0, "bearing": 0, "timestamp": 0, "team": "blue", "kaiTagConnected": True}
 
     if isinstance(bearing, (int, float)):
         current_time = time.time()
         CLIENT_STATES[client_sid]["bearing"] = bearing
         CLIENT_STATES[client_sid]["timestamp"] = current_time
+        # Don't update kaiTagConnected status from bearing-only update
         logging.debug(f"Updated bearing for {client_sid} to {bearing}")
 
-        # Broadcast only the change to all clients (including sender is fine)
         emit('bearing_updated', {
              'clientId': client_sid,
              'bearing': bearing,
              'timestamp': current_time
              }, broadcast=True)
-        # logging.debug(f"Broadcasted bearing update for {client_sid}")
     else:
         logging.warning(f"Received invalid bearing update from {client_sid}: {bearing}")
 

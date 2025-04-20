@@ -183,10 +183,13 @@
         let firstGpsUpdate = true;
         const lineDistanceMeters = 500; // How long the direction line should be
         const forwardVector = new THREE.Vector3(); // Reusable vector for direction calculation
-        let socket = null; // Changed from webSocket
+        let socket = null; // Socket.IO client instance
         let myClientId = null;
-        let clientStates = {}; // { clientId: { lat, lon, bearing, timestamp, team }, ... }
+        let clientStates = {}; // { clientId: { lat, lon, bearing, timestamp, team, kaiTagConnected }, ... }
         let myTeam = null; // 'red' or 'blue'
+        let localKaiTagConnected = false; // Track local device connection status
+        let reconnectIntervalId = null; // Timer ID for auto-reconnect attempts
+        const RECONNECT_DELAY = 5000; // 5 seconds
 
         // Throttling for bearing updates
         let lastBearingSendTime = 0;
@@ -194,7 +197,36 @@
         const bearingUpdateThreshold = 1.0; // Degrees
         const bearingUpdateInterval = 100; // Milliseconds (10 times per second max)
 
-        // --- WebSocket Communication ---
+        // --- Helper: Send Full State Update ---
+        function sendFullStateUpdate() {
+            if (!myTeam || !myClientId || !socket || !socket.connected) return; // Need team, ID, and connection
+
+            // Try to get current GPS coords, use last known if unavailable directly
+            let lat = 0, lon = 0;
+            if (clientStates[myClientId] && clientStates[myClientId].lat !== undefined) {
+                lat = clientStates[myClientId].lat;
+                lon = clientStates[myClientId].lon;
+            }
+            // TODO: Consider getting fresh GPS coords here if possible/needed
+
+            const statePayload = {
+                lat: lat,
+                lon: lon,
+                bearing: getLocalBearing(), // Get current bearing
+                team: myTeam,
+                kaiTagConnected: localKaiTagConnected // Include connection status
+            };
+            sendSocketIOMessage('update_state', statePayload);
+
+            // Update local state immediately
+            if (!clientStates[myClientId]) clientStates[myClientId] = {};
+            Object.assign(clientStates[myClientId], statePayload);
+            clientStates[myClientId].timestamp = Date.now();
+            updateMapMarkers(); // Update map immediately
+            // console.log("Sent full state update:", statePayload);
+        }
+
+        // --- Socket.IO Communication ---
         function connectSocketIO() {
              // Connect to the Socket.IO server (same origin)
              socket = io(); // If server is elsewhere: io('http://server.com:port');
@@ -317,10 +349,14 @@
 
             for (const clientId in clientStates) {
                 const state = clientStates[clientId];
+                // Skip if state is incomplete (might happen briefly on connect/disconnect)
+                if (typeof state.lat !== 'number' || typeof state.lon !== 'number') continue;
+
                 const latLng = L.latLng(state.lat, state.lon);
                 const endPointLatLng = calculateDestinationPoint(state.lat, state.lon, state.bearing, lineDistanceMeters);
                 const isLocal = (clientId === myClientId);
-                const team = state.team || 'blue'; // Default to blue if team not set
+                const team = state.team || 'blue';
+                const isKaiTagConnected = state.kaiTagConnected !== undefined ? state.kaiTagConnected : true; // Default to true if unknown
 
                 // --- Team Filtering Logic ---
                 if (!isLocal && team !== myTeam) {
@@ -331,9 +367,17 @@
                 }
 
                 // Determine colors
-                let markerColor = (team === 'red') ? "#ff0000" : "#0000ff"; // Red or Blue
+                let markerColor;
+                if (!isKaiTagConnected && !isLocal) {
+                    markerColor = "#808080"; // Gray for disconnected non-local players
+                } else {
+                    markerColor = (team === 'red') ? "#ff0000" : "#0000ff"; // Team color otherwise
+                }
                 let lineColor = markerColor;
                 let popupText = `Team ${team.charAt(0).toUpperCase() + team.slice(1)} (${clientId.substring(0, 6)})`;
+                if (!isKaiTagConnected && !isLocal) {
+                    popupText += " (Disconnected)";
+                }
 
                 if (isLocal) {
                     markerColor = "#00ff00"; // Always green for local player
@@ -541,29 +585,21 @@
                     (position) => {
                         const lat = position.coords.latitude;
                         const lon = position.coords.longitude;
-                        const bearing = getLocalBearing(); // Get current bearing
+
+                        // Update local state first (for sendFullStateUpdate)
+                        if(myClientId) {
+                             if (!clientStates[myClientId]) clientStates[myClientId] = {};
+                             clientStates[myClientId].lat = lat;
+                             clientStates[myClientId].lon = lon;
+                        }
 
                         // Only send update if a team has been selected
                         if (myTeam) {
-                            const statePayload = {
-                                lat: lat,
-                                lon: lon,
-                                bearing: bearing,
-                                team: myTeam // Include team info
-                            };
-                            sendSocketIOMessage('update_state', statePayload);
-
-                            // Update local state immediately
-                            if(myClientId) {
-                                if (!clientStates[myClientId]) clientStates[myClientId] = {};
-                                Object.assign(clientStates[myClientId], statePayload);
-                                clientStates[myClientId].timestamp = Date.now(); // Use local time for immediate update
-                                updateMapMarkers(); // Update map immediately with local change
-                            }
+                            // Send full state (includes kaiTagConnected status) on GPS update
+                            sendFullStateUpdate();
                         } else {
                             console.log("GPS Update received, but no team selected yet.")
                         }
-
                     },
                     (error) => {
                         statusDiv.textContent = `Status: GPS Error - ${error.message}`;
@@ -582,16 +618,51 @@
         }
 
         // --- BLE ---
+        function stopReconnectTimer() {
+            if (reconnectIntervalId !== null) {
+                console.log("Stopping KaiTag reconnect timer.");
+                clearInterval(reconnectIntervalId);
+                reconnectIntervalId = null;
+            }
+        }
+
         async function connectDevice() {
+            const isManualAttempt = reconnectIntervalId === null; // Check if this is a manual click or auto-reconnect
             try {
-                statusDiv.textContent = 'Status: Requesting device...';
-                device = await navigator.bluetooth.requestDevice({
-                     filters: [{name: 'KaiTag'}],
-                     optionalServices: [SERVICE_UUID]
-                });
-                statusDiv.textContent = `Status: Connecting to ${device.name}...`;
+                // Stop trying to reconnect if we manually click connect again
+                if (isManualAttempt) {
+                    stopReconnectTimer();
+                }
+
+                if (!isManualAttempt) {
+                    statusDiv.textContent = 'Status: Reconnecting KaiTag...';
+                    console.log("Attempting automatic KaiTag reconnect...");
+                    // For auto-reconnect, we assume we already have the 'device' object.
+                    if (!device) {
+                        console.error("Reconnect timer running but device object is null. Stopping timer.");
+                        stopReconnectTimer();
+                        return;
+                    }
+                    // Add a specific check for gatt being connected already, stop timer if so
+                    if (device.gatt && device.gatt.connected) {
+                        console.log("Device already connected, stopping reconnect timer.");
+                        stopReconnectTimer();
+                        return;
+                    }
+                } else {
+                    statusDiv.textContent = 'Status: Requesting device...';
+                    // Manual connection: request the device
+                    const requestedDevice = await navigator.bluetooth.requestDevice({
+                        filters: [{name: 'KaiTag'}],
+                        optionalServices: [SERVICE_UUID]
+                    });
+                    device = requestedDevice; // Store the device object
+                }
+
+                device.removeEventListener('gattserverdisconnected', onDisconnected); // Remove previous listener if any
                 device.addEventListener('gattserverdisconnected', onDisconnected);
                 const server = await device.gatt.connect();
+                stopReconnectTimer(); // Stop trying if connection succeeds
                 statusDiv.textContent = 'Status: Getting Service...';
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 statusDiv.textContent = 'Status: Getting Characteristic...';
@@ -602,39 +673,72 @@
                 statusDiv.textContent = `Status: Connected to ${device.name}`;
                 connectButton.textContent = 'Disconnect';
                 console.log('Connected to KaiTag');
+                localKaiTagConnected = true;
+                sendFullStateUpdate(); // Send updated state with connection status
+
             } catch (error) {
+                // Log different message based on attempt type
+                const errorMsg = isManualAttempt ? 'Manual BLE Connection Error:' : 'Auto-Reconnect BLE Error:';
                 statusDiv.textContent = `Status: Error - ${error.message}`;
-                console.error('BLE Connection Error:', error);
-                if (device) {
-                    device.removeEventListener('gattserverdisconnected', onDisconnected);
-                    if (device.gatt.connected) {
-                        device.gatt.disconnect();
+                console.error(errorMsg, error);
+                localKaiTagConnected = false; // Ensure status is false on error
+
+                if (isManualAttempt) {
+                    // Reset button etc. only on manual connect failure
+                    if (device && device.gatt.connected) {
+                        try { device.gatt.disconnect(); } catch (e) { console.warn("Error during disconnect on failure:", e); }
                     }
+                    device = null;
+                    quaternionCharacteristic = null;
+                    connectButton.textContent = 'Connect KaiTag';
+                } else {
+                    // Auto-reconnect failed, timer will try again unless stopped
+                    console.log("Auto-reconnect attempt failed. Will retry.");
                 }
-                device = null;
-                quaternionCharacteristic = null;
-                 connectButton.textContent = 'Connect KaiTag';
+                // Send state update even on failure if we have an ID/team
+                sendFullStateUpdate();
             }
         }
 
         function onDisconnected() {
-            statusDiv.textContent = 'Status: Disconnected';
-            console.log('Device disconnected');
+            statusDiv.textContent = 'Status: KaiTag Disconnected';
+            console.log('KaiTag device disconnected');
+            localKaiTagConnected = false;
             if (quaternionCharacteristic) {
                 quaternionCharacteristic.removeEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+                quaternionCharacteristic = null; // Clear characteristic
             }
-            if(device) { // Check if device exists before removing listener
-                 device.removeEventListener('gattserverdisconnected', onDisconnected);
+            // Keep the device object for reconnect attempts
+            // Send state update immediately
+            sendFullStateUpdate();
+
+            // Start automatic reconnection attempts if not already running
+            if (reconnectIntervalId === null) {
+                console.log(`Starting KaiTag auto-reconnect attempts every ${RECONNECT_DELAY}ms`);
+                reconnectIntervalId = setInterval(() => {
+                    if (device && (!device.gatt || !device.gatt.connected)) { // Only try if device exists and not connected
+                       connectDevice(); // Call connectDevice which handles reconnect logic
+                    } else if (!device) {
+                        console.warn("Reconnect timer active but no device object. Stopping timer.");
+                        stopReconnectTimer();
+                    } else { // Already connected
+                         console.log("Reconnect timer: Device appears connected. Stopping timer.");
+                         stopReconnectTimer(); // Stop timer if already connected
+                    }
+                }, RECONNECT_DELAY);
             }
-            device = null;
-            quaternionCharacteristic = null;
-            connectButton.textContent = 'Connect KaiTag';
-             // Reset target orientation
-             targetQuaternion.set(0, 0, 0, 1);
         }
 
-        async function disconnectDevice() {
-            if (!device || !device.gatt.connected) return;
+        async function disconnectDevice() { // Manual disconnect
+            stopReconnectTimer(); // Stop any auto-reconnect attempts first
+            if (!device || !device.gatt.connected) {
+                 connectButton.textContent = 'Connect KaiTag'; // Ensure button is correct state
+                 // Also update local state and notify server
+                 localKaiTagConnected = false;
+                 sendFullStateUpdate();
+                 return;
+            }
+
             statusDiv.textContent = 'Status: Disconnecting...';
             try {
                 if (quaternionCharacteristic && quaternionCharacteristic.properties.notify) {
@@ -648,7 +752,6 @@
                 console.error('BLE Disconnect Error:', error);
                 onDisconnected();
             }
-
         }
 
         function handleCharacteristicValueChanged(event) {
