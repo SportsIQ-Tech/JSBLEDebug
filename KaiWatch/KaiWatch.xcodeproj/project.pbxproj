@@ -320,6 +320,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Quaternion Info";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "nneeed it";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = map;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -334,7 +336,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 11.2;
+				WATCHOS_DEPLOYMENT_TARGET = 9.6;
 			};
 			name = Debug;
 		};
@@ -351,6 +353,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Quaternion Info";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "nneeed it";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = map;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -366,7 +370,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 11.2;
+				WATCHOS_DEPLOYMENT_TARGET = 9.6;
 			};
 			name = Release;
 		};
