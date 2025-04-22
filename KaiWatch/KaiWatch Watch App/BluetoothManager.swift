@@ -1,6 +1,7 @@
 import Foundation
 import CoreBluetooth
 import Combine // Needed for ObservableObject and @Published
+import simd // For SIMD quaternion support
 
 // Define the UUIDs (matching your web app)
 let kaiTagServiceUUID = CBUUID(string: "b7063e97-8504-4fcb-b0f5-aef2d5903c4d")
@@ -19,7 +20,8 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     // MARK: - Published Properties for UI Updates
     @Published var isConnected: Bool = false
     @Published var statusMessage: String = "Initializing..."
-    @Published var lastQuaternion: Quaternion = Quaternion() // Store the latest received quaternion
+    @Published var lastQuaternion: simd_quatf = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1) // Use SIMD quaternion
+    @Published var currentBearing: Double = 0.0 // Degrees from initial orientation
 
     // MARK: - Core Bluetooth Properties
     private var centralManager: CBCentralManager!
@@ -299,10 +301,45 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         // Update the published property
         // Run on main thread as it triggers UI updates
         DispatchQueue.main.async {
-            self.lastQuaternion = Quaternion(w: w, x: x, y: y, z: z)
+            // Create a SIMD quaternion (more robust for calculations)
+            // Note: Web code sends W,X,Y,Z. SIMD uses X,Y,Z,W (vector, real)
+            let receivedQuat = simd_quatf(ix: x, iy: y, iz: z, r: w).normalized
+            self.lastQuaternion = receivedQuat
+
+            // Calculate and update bearing
+            self.updateBearing(from: receivedQuat)
+
             // Optionally normalize here if needed, though usually done on sensor
             // print("Quaternion Updated: w:\(w) x:\(x) y:\(y) z:\(z)") // DEBUG: Reduce frequency if needed
         }
+    }
+
+    // MARK: - Bearing Calculation
+    private func updateBearing(from quaternion: simd_quatf) {
+        // Calculate Yaw (rotation around Y-axis in a common aerospace sequence)
+        // This formula gives yaw relative to the *initial* orientation of the sensor
+        // when it started transmitting. It assumes Z is forward, Y is up.
+        // Adjust based on your sensor's actual coordinate system if needed.
+
+        // Formula derived from quaternion to Euler conversion (Yaw component)
+        let q = quaternion
+        let yawRadians = atan2(2 * (q.vector.y * q.vector.w - q.vector.x * q.vector.z),
+                             1 - 2 * (q.vector.y * q.vector.y + q.vector.z * q.vector.z))
+
+        // Convert radians to degrees
+        var yawDegrees = yawRadians * (180.0 / .pi)
+
+        // Normalize to 0-360 degrees
+        // Bearing typically measures clockwise from North (0 degrees)
+        // atan2 result range is -pi to +pi (-180 to +180). Adjust if needed.
+        // Depending on sensor orientation, you might need to add an offset or invert.
+        // This simple conversion assumes 0 degrees yaw = North.
+        if yawDegrees < 0 {
+            yawDegrees += 360.0
+        }
+
+        self.currentBearing = Double(yawDegrees)
+         // print(String(format: "Bearing Updated: %.1f°", self.currentBearing)) // DEBUG
     }
 }
 
