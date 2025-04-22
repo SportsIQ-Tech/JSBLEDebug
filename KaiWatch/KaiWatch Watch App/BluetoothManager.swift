@@ -46,10 +46,13 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             return
         }
 
-        statusMessage = "Scanning for KaiTag..."
-        print("Starting scan for peripherals with service UUID: \(kaiTagServiceUUID)")
-        // Start scanning specifically for the KaiTag service UUID
-        centralManager.scanForPeripherals(withServices: [kaiTagServiceUUID], options: nil)
+        // Clear any previously stored peripheral before starting a new scan
+        kaiTagPeripheral = nil
+
+        statusMessage = "Scanning for KaiTag by name..."
+        print("Starting scan for all peripherals...")
+        // Start scanning for ALL peripherals
+        centralManager.scanForPeripherals(withServices: nil, options: nil)
 
         // Optional: Timeout for scanning
         // DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
@@ -116,15 +119,26 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
-        // We found a peripheral advertising the service
-        print("Discovered peripheral: \(peripheral.name ?? "Unknown Device") at RSSI: \(RSSI)")
-        statusMessage = "KaiTag Found. Connecting..."
+        // We found a peripheral, now check its advertised name
+        let peripheralName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
 
-        kaiTagPeripheral = peripheral // Store reference
-        kaiTagPeripheral?.delegate = self // Set delegate
+        print("Discovered peripheral: \(peripheralName ?? "(No Name)") [\(peripheral.identifier)] at RSSI: \(RSSI)")
 
-        centralManager.stopScan() // Stop scanning once found
-        centralManager.connect(peripheral, options: nil)
+        // Check if the name matches "KaiTag"
+        if let name = peripheralName, name == "KaiTag" {
+            print("Found KaiTag by name! Connecting...")
+            statusMessage = "KaiTag Found. Connecting..."
+
+            // We found our target, store reference and connect
+            kaiTagPeripheral = peripheral // Store reference
+            kaiTagPeripheral?.delegate = self // Set delegate
+
+            centralManager.stopScan() // Stop scanning once found
+            centralManager.connect(peripheral, options: nil)
+        } else {
+             // It's not the KaiTag, keep scanning (or log if needed)
+             // print("Ignoring peripheral \(peripheralName ?? "(No Name)")")
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {

@@ -6,20 +6,49 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AE41FA202DB7BC4B00C47B5B /* KaiWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = AE41FA1F2DB7BC4B00C47B5B /* KaiWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AE41FA212DB7BC4B00C47B5B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AE41FA132DB7BC4B00C47B5B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AE41FA1E2DB7BC4B00C47B5B;
+			remoteInfo = "KaiWatch Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AE41FA322DB7BC4C00C47B5B /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				AE41FA202DB7BC4B00C47B5B /* KaiWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
-		AE41F9F92DB7B3AE00C47B5B /* KaiTagWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KaiTagWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE41FA192DB7BC4B00C47B5B /* KaiWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KaiWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE41FA1F2DB7BC4B00C47B5B /* KaiWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KaiWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		AE41F9FD2DB7B3AE00C47B5B /* KaiTagWatch Watch App */ = {
+		AE41FA232DB7BC4B00C47B5B /* KaiWatch Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "KaiTagWatch Watch App";
+			path = "KaiWatch Watch App";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		AE41F9F62DB7B3AE00C47B5B /* Frameworks */ = {
+		AE41FA1C2DB7BC4B00C47B5B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -29,18 +58,19 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		AE41F9E02DB7B3AD00C47B5B = {
+		AE41FA122DB7BC4B00C47B5B = {
 			isa = PBXGroup;
 			children = (
-				AE41F9FD2DB7B3AE00C47B5B /* KaiTagWatch Watch App */,
-				AE41F9EA2DB7B3AD00C47B5B /* Products */,
+				AE41FA232DB7BC4B00C47B5B /* KaiWatch Watch App */,
+				AE41FA1A2DB7BC4B00C47B5B /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		AE41F9EA2DB7B3AD00C47B5B /* Products */ = {
+		AE41FA1A2DB7BC4B00C47B5B /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				AE41F9F92DB7B3AE00C47B5B /* KaiTagWatch Watch App.app */,
+				AE41FA192DB7BC4B00C47B5B /* KaiWatch.app */,
+				AE41FA1F2DB7BC4B00C47B5B /* KaiWatch Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,64 +78,94 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		AE41F9F82DB7B3AE00C47B5B /* KaiTagWatch Watch App */ = {
+		AE41FA182DB7BC4B00C47B5B /* KaiWatch */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AE41FA092DB7B3AF00C47B5B /* Build configuration list for PBXNativeTarget "KaiTagWatch Watch App" */;
+			buildConfigurationList = AE41FA332DB7BC4C00C47B5B /* Build configuration list for PBXNativeTarget "KaiWatch" */;
 			buildPhases = (
-				AE41F9F52DB7B3AE00C47B5B /* Sources */,
-				AE41F9F62DB7B3AE00C47B5B /* Frameworks */,
-				AE41F9F72DB7B3AE00C47B5B /* Resources */,
+				AE41FA172DB7BC4B00C47B5B /* Resources */,
+				AE41FA322DB7BC4C00C47B5B /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AE41FA222DB7BC4B00C47B5B /* PBXTargetDependency */,
+			);
+			name = KaiWatch;
+			packageProductDependencies = (
+			);
+			productName = KaiWatch;
+			productReference = AE41FA192DB7BC4B00C47B5B /* KaiWatch.app */;
+			productType = "com.apple.product-type.application.watchapp2-container";
+		};
+		AE41FA1E2DB7BC4B00C47B5B /* KaiWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AE41FA2F2DB7BC4C00C47B5B /* Build configuration list for PBXNativeTarget "KaiWatch Watch App" */;
+			buildPhases = (
+				AE41FA1B2DB7BC4B00C47B5B /* Sources */,
+				AE41FA1C2DB7BC4B00C47B5B /* Frameworks */,
+				AE41FA1D2DB7BC4B00C47B5B /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				AE41F9FD2DB7B3AE00C47B5B /* KaiTagWatch Watch App */,
+				AE41FA232DB7BC4B00C47B5B /* KaiWatch Watch App */,
 			);
-			name = "KaiTagWatch Watch App";
+			name = "KaiWatch Watch App";
 			packageProductDependencies = (
 			);
-			productName = "KaiTagWatch Watch App";
-			productReference = AE41F9F92DB7B3AE00C47B5B /* KaiTagWatch Watch App.app */;
+			productName = "KaiWatch Watch App";
+			productReference = AE41FA1F2DB7BC4B00C47B5B /* KaiWatch Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		AE41F9E12DB7B3AD00C47B5B /* Project object */ = {
+		AE41FA132DB7BC4B00C47B5B /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1620;
 				LastUpgradeCheck = 1620;
 				TargetAttributes = {
-					AE41F9F82DB7B3AE00C47B5B = {
+					AE41FA182DB7BC4B00C47B5B = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					AE41FA1E2DB7BC4B00C47B5B = {
 						CreatedOnToolsVersion = 16.2;
 					};
 				};
 			};
-			buildConfigurationList = AE41F9E42DB7B3AD00C47B5B /* Build configuration list for PBXProject "KaiTagWatch" */;
+			buildConfigurationList = AE41FA162DB7BC4B00C47B5B /* Build configuration list for PBXProject "KaiWatch" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = AE41F9E02DB7B3AD00C47B5B;
+			mainGroup = AE41FA122DB7BC4B00C47B5B;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = AE41F9EA2DB7B3AD00C47B5B /* Products */;
+			productRefGroup = AE41FA1A2DB7BC4B00C47B5B /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				AE41F9F82DB7B3AE00C47B5B /* KaiTagWatch Watch App */,
+				AE41FA182DB7BC4B00C47B5B /* KaiWatch */,
+				AE41FA1E2DB7BC4B00C47B5B /* KaiWatch Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		AE41F9F72DB7B3AE00C47B5B /* Resources */ = {
+		AE41FA172DB7BC4B00C47B5B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE41FA1D2DB7BC4B00C47B5B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -115,7 +175,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		AE41F9F52DB7B3AE00C47B5B /* Sources */ = {
+		AE41FA1B2DB7BC4B00C47B5B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -124,8 +184,16 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		AE41FA222DB7BC4B00C47B5B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AE41FA1E2DB7BC4B00C47B5B /* KaiWatch Watch App */;
+			targetProxy = AE41FA212DB7BC4B00C47B5B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
-		AE41FA072DB7B3AF00C47B5B /* Debug */ = {
+		AE41FA2D2DB7BC4C00C47B5B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -186,7 +254,7 @@
 			};
 			name = Debug;
 		};
-		AE41FA082DB7B3AF00C47B5B /* Release */ = {
+		AE41FA2E2DB7BC4C00C47B5B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -239,28 +307,27 @@
 			};
 			name = Release;
 		};
-		AE41FA0A2DB7B3AF00C47B5B /* Debug */ = {
+		AE41FA302DB7BC4C00C47B5B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"KaiTagWatch Watch App/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "\"KaiWatch Watch App/Preview Content\"";
 				DEVELOPMENT_TEAM = 4TDG3N29UW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = KaiTagWatch;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Connects to KaiTag sensor for orientation data.\n";
+				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Quaternion Info";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.KaiSense.KaiTagWatch;
-				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
+				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiTagWatch.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -271,28 +338,27 @@
 			};
 			name = Debug;
 		};
-		AE41FA0B2DB7B3AF00C47B5B /* Release */ = {
+		AE41FA312DB7BC4C00C47B5B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"KaiTagWatch Watch App/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "\"KaiWatch Watch App/Preview Content\"";
 				DEVELOPMENT_TEAM = 4TDG3N29UW;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = KaiTagWatch;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Connects to KaiTag sensor for orientation data.\n";
+				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Quaternion Info";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.KaiSense.KaiTagWatch;
-				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = YES;
+				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiTagWatch.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -304,28 +370,68 @@
 			};
 			name = Release;
 		};
+		AE41FA342DB7BC4C00C47B5B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4TDG3N29UW;
+				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AE41FA352DB7BC4C00C47B5B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4TDG3N29UW;
+				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AE41F9E42DB7B3AD00C47B5B /* Build configuration list for PBXProject "KaiTagWatch" */ = {
+		AE41FA162DB7BC4B00C47B5B /* Build configuration list for PBXProject "KaiWatch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AE41FA072DB7B3AF00C47B5B /* Debug */,
-				AE41FA082DB7B3AF00C47B5B /* Release */,
+				AE41FA2D2DB7BC4C00C47B5B /* Debug */,
+				AE41FA2E2DB7BC4C00C47B5B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		AE41FA092DB7B3AF00C47B5B /* Build configuration list for PBXNativeTarget "KaiTagWatch Watch App" */ = {
+		AE41FA2F2DB7BC4C00C47B5B /* Build configuration list for PBXNativeTarget "KaiWatch Watch App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AE41FA0A2DB7B3AF00C47B5B /* Debug */,
-				AE41FA0B2DB7B3AF00C47B5B /* Release */,
+				AE41FA302DB7BC4C00C47B5B /* Debug */,
+				AE41FA312DB7BC4C00C47B5B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AE41FA332DB7BC4C00C47B5B /* Build configuration list for PBXNativeTarget "KaiWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AE41FA342DB7BC4C00C47B5B /* Debug */,
+				AE41FA352DB7BC4C00C47B5B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = AE41F9E12DB7B3AD00C47B5B /* Project object */;
+	rootObject = AE41FA132DB7BC4B00C47B5B /* Project object */;
 }
