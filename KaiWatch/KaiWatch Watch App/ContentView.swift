@@ -6,6 +6,11 @@ struct ContentView: View {
     // Create instances of the managers
     @StateObject private var bluetoothManager = BluetoothManager()
     @StateObject private var locationManager = LocationManager()
+    @StateObject private var socketManager = RESTAPIManager() // Updated to RESTAPIManager
+
+    // UI State
+    @State private var selectedTeam: String? = nil // Track selected team ("red" or "blue")
+    let teams = ["red", "blue"]
 
     // Map State
     // Note: Using cameraPosition directly might be better for watchOS
@@ -19,88 +24,208 @@ struct ContentView: View {
     @State private var aimingLineCoordinates: [CLLocationCoordinate2D] = []
     private let aimingLineDistanceMeters: Double = 50 // Length of the line on map
 
+    // State for throttling updates
+    @State private var lastSentTimestamp: Date = Date(timeIntervalSince1970: 0)
+    private let updateInterval: TimeInterval = 0.1 // Send updates max 10 times/sec
+    @State private var lastBearingTimestamp: Date = Date(timeIntervalSince1970: 0)
+    private let bearingUpdateInterval: TimeInterval = 0.2 // Send bearing updates max 5 times/sec
+
     var body: some View {
-        VStack { // Use VStack instead of ScrollView if Map is primary
-            // --- Map View ---
-            Map(position: $cameraPosition) {
-                // User location annotation (blue dot)
-                UserAnnotation()
+        // Show Team Selection Overlay if no team is selected
+        if selectedTeam == nil {
+            TeamSelectionView(selectedTeam: $selectedTeam)
+        } else {
+            // Main Map and Status View
+            ZStack(alignment: .bottom) { // Use ZStack to overlay status
+                Map(position: $cameraPosition) {
+                    // User location annotation (blue dot)
+                    UserAnnotation()
 
-                // Aiming line overlay (needs coordinates)
-                if !aimingLineCoordinates.isEmpty {
-                    MapPolyline(coordinates: aimingLineCoordinates)
-                        .stroke(.green, lineWidth: 3)
-                }
-            }
-            .mapControls {
-                 // Add map controls if desired (zoom, etc.) - might clutter watch face
-                 // MapUserLocationButton()
-                 // MapCompass()
-                 // MapScaleView()
-            }
-            .onChange(of: locationManager.lastLocation) { _, newLocation in
-                 updateMapAndAimingLine(location: newLocation, bearing: bluetoothManager.currentBearing)
-            }
-            .onChange(of: bluetoothManager.currentBearing) { _, newBearing in
-                updateMapAndAimingLine(location: locationManager.lastLocation, bearing: newBearing)
-            }
-            .onAppear {
-                 // Initial update when view appears
-                updateMapAndAimingLine(location: locationManager.lastLocation, bearing: bluetoothManager.currentBearing)
-            }
-
-            // --- Status Overlay (Optional) ---
-            // Consider moving status text/button to an overlay or separate view
-            // to avoid taking space from the map.
-             HStack {
-                 Button {
-                    if bluetoothManager.isConnected {
-                        bluetoothManager.disconnect()
-                    } else {
-                        bluetoothManager.startScanning()
+                    // Aiming line overlay (needs coordinates)
+                    if !aimingLineCoordinates.isEmpty {
+                        MapPolyline(coordinates: aimingLineCoordinates)
+                            .stroke(.green, lineWidth: 3)
                     }
-                } label: {
-                    Image(systemName: bluetoothManager.isConnected ? "antenna.radiowaves.left.and.right.slash" : "antenna.radiowaves.left.and.right")
+
+                    // Display other clients from socketManager.allClientStates
+                    // (Example: drawing markers - requires more complex logic)
+                    // ForEach(Array(socketManager.allClientStates.values)) { client in
+                    //     if client.id != socketManager.myClientId,
+                    //        let lat = client.lat, let lon = client.lon {
+                    //         Marker(client.team ?? "", coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+                    //             .tint(client.team == "red" ? .red : .blue)
+                    //     }
+                    // }
                 }
-                .tint(bluetoothManager.isConnected ? .red : .blue)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .mapControls {
+                     // Add map controls if desired (zoom, etc.) - might clutter watch face
+                     // MapUserLocationButton()
+                     // MapCompass()
+                     // MapScaleView()
+                }
+                .onChange(of: locationManager.lastLocation) { _, newLocation in
+                     updateMapAndMaybeSendState(location: newLocation,
+                                                bearing: bluetoothManager.currentBearing,
+                                                btConnected: bluetoothManager.isConnected,
+                                                team: selectedTeam)
+                }
+                .onChange(of: bluetoothManager.currentBearing) { _, newBearing in
+                    updateMapAndMaybeSendState(location: locationManager.lastLocation,
+                                               bearing: newBearing,
+                                               btConnected: bluetoothManager.isConnected,
+                                               team: selectedTeam)
+                    
+                    // Send bearing updates separately with their own throttling
+                    sendBearingUpdate(bearing: newBearing)
+                }
+                .onChange(of: bluetoothManager.isConnected) { _, newBtConnected in
+                    updateMapAndMaybeSendState(location: locationManager.lastLocation,
+                                               bearing: bluetoothManager.currentBearing,
+                                               btConnected: newBtConnected,
+                                               team: selectedTeam)
+                }
+                .onAppear {
+                     // Connect socket when view appears (if team is selected)
+                     socketManager.connect()
+                     // Initial update
+                     updateMapAndMaybeSendState(location: locationManager.lastLocation,
+                                                bearing: bluetoothManager.currentBearing,
+                                                btConnected: bluetoothManager.isConnected,
+                                                team: selectedTeam)
+                }
+                .onDisappear {
+                    // Disconnect socket when view disappears
+                    socketManager.disconnect()
+                }
+                .ignoresSafeArea(edges: .top) // Allow map to go to screen top
 
-                 VStack {
-                    Text(bluetoothManager.statusMessage).font(.caption2)
-                    Text(locationManager.statusMessage).font(.caption2)
-                    Text(String(format: "Bearing: %.1f°", bluetoothManager.currentBearing)).font(.caption2)
-                 }
-                 Spacer() // Push button/text left/right
-             }
-             .padding(.horizontal)
-             .padding(.vertical, 4)
-             .background(.thinMaterial) // Make status stand out
-
+                // Status Overlay Panel
+                statusOverlay
+            }
         }
-        .ignoresSafeArea(edges: .top) // Allow map to go to screen top
+    }
 
+    // Extracted Status Overlay View
+    private var statusOverlay: some View {
+         HStack {
+             // Bluetooth Connect Button
+             Button {
+                if bluetoothManager.isConnected {
+                    bluetoothManager.disconnect()
+                } else {
+                    bluetoothManager.startScanning()
+                }
+            } label: {
+                Image(systemName: bluetoothManager.isConnected ? "antenna.radiowaves.left.and.right.slash" : "antenna.radiowaves.left.and.right")
+            }
+            .tint(bluetoothManager.isConnected ? .green : .gray) // Green when connected
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+             // Socket Connect/Disconnect Button
+             Button {
+                 if socketManager.isConnected {
+                     socketManager.disconnect()
+                 } else {
+                     socketManager.connect() // Allow manual reconnect
+                 }
+             } label: {
+                 Image(systemName: socketManager.isConnected ? "network.slash" : "network")
+             }
+             .tint(socketManager.isConnected ? .blue : .gray)
+             .buttonStyle(.bordered)
+             .controlSize(.small)
+
+             VStack(alignment: .leading) {
+                 Text("BT: \(bluetoothManager.statusMessage)").font(.caption2).lineLimit(1)
+                 Text("GPS: \(locationManager.statusMessage)").font(.caption2).lineLimit(1)
+                 Text("NET: \(socketManager.statusMessage)").font(.caption2).lineLimit(1)
+                 Text(String(format: "Bearing: %.1f°", bluetoothManager.currentBearing)).font(.caption2)
+             }
+             .frame(maxWidth: .infinity) // Allow text to take available space
+
+             // Display selected team
+            if let team = selectedTeam {
+                Text(team.uppercased())
+                    .font(.caption.bold())
+                    .padding(3)
+                    .background(team == "red" ? Color.red : Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(3)
+            }
+
+         }
+         .padding(.horizontal, 6)
+         .padding(.vertical, 4)
+         .background(.thinMaterial)
     }
 
     // MARK: - Helper Functions
 
-    private func updateMapAndAimingLine(location: CLLocation?, bearing: Double) {
+    private func updateMapAndMaybeSendState(location: CLLocation?, bearing: Double, btConnected: Bool, team: String?) {
+        // 1. Update the local map aiming line
+        updateAimingLine(location: location, bearing: bearing)
+
+        // 2. Check if ready to send state
+        guard let currentCoord = location?.coordinate,
+              let currentTeam = team,
+              socketManager.isConnected,
+              socketManager.myClientId != nil
+        else {
+            // Add print statement here to see if guard fails
+             print("DEBUG: Conditions not met for sending state. Socket Connected: \(socketManager.isConnected), Client ID: \(socketManager.myClientId ?? "nil"), Team: \(team ?? "nil"), Location: \(location != nil)")
+            return
+        }
+
+        // 3. Throttle the updates
+        let now = Date()
+        guard now.timeIntervalSince(lastSentTimestamp) >= updateInterval else {
+             // Add print statement here to see if throttled
+             // print("DEBUG: Throttled state update.")
+            return
+        }
+        lastSentTimestamp = now
+
+        // 4. Create payload and send
+        let payload = StateUpdatePayload(
+            team: currentTeam,
+            latitude: currentCoord.latitude,
+            longitude: currentCoord.longitude
+        )
+
+        // Add print statement here before sending
+        print("DEBUG: Sending state update: Team=\(payload.team), Lat=\(payload.latitude), Lon=\(payload.longitude)")
+        socketManager.sendStateUpdate(payload: payload)
+    }
+    
+    private func sendBearingUpdate(bearing: Double) {
+        // Check if ready to send bearing
+        guard socketManager.isConnected,
+              socketManager.myClientId != nil
+        else {
+            return
+        }
+        
+        // Throttle bearing updates
+        let now = Date()
+        guard now.timeIntervalSince(lastBearingTimestamp) >= bearingUpdateInterval else {
+            return
+        }
+        lastBearingTimestamp = now
+        
+        print("DEBUG: Sending bearing update: \(bearing)")
+        socketManager.sendBearingUpdate(bearing: bearing)
+    }
+
+    private func updateAimingLine(location: CLLocation?, bearing: Double) {
         guard let currentCoord = location?.coordinate else {
-             // If no location, clear the line
-             aimingLineCoordinates = []
-             return
-         }
-
-        // Update map position (optional, as .userLocation might handle it)
-        // cameraPosition = .region(MKCoordinateRegion(center: currentCoord, span: mapRegion.span))
-
-        // Calculate endpoint for the aiming line
+            aimingLineCoordinates = []
+            return
+        }
         let endCoord = calculateDestinationPoint(lat: currentCoord.latitude,
                                                 lon: currentCoord.longitude,
                                                 bearing: bearing,
                                                 distance: aimingLineDistanceMeters)
-
-        // Update the state variable which redraws the MapPolyline
         aimingLineCoordinates = [currentCoord, endCoord]
     }
 
@@ -121,6 +246,29 @@ struct ContentView: View {
         let lon2 = lambda2 * 180 / .pi
 
         return CLLocationCoordinate2D(latitude: lat2, longitude: lon2)
+    }
+}
+
+// --- Team Selection View ---
+struct TeamSelectionView: View {
+    @Binding var selectedTeam: String?
+    let teams = ["red", "blue"]
+
+    var body: some View {
+        VStack {
+            Text("Choose Your Team")
+                .font(.title2)
+
+            HStack(spacing: 20) {
+                ForEach(teams, id: \.self) { team in
+                    Button(team.capitalized) {
+                        selectedTeam = team
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(team == "red" ? .red : .blue)
+                }
+            }
+        }
     }
 }
 

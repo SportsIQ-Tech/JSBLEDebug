@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		AE41FA202DB7BC4B00C47B5B /* KaiWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = AE41FA1F2DB7BC4B00C47B5B /* KaiWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AE721A7B2DB7CD34002DA913 /* SocketIO in Frameworks */ = {isa = PBXBuildFile; productRef = AE721A7A2DB7CD34002DA913 /* SocketIO */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +53,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AE721A7B2DB7CD34002DA913 /* SocketIO in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,6 +116,7 @@
 			);
 			name = "KaiWatch Watch App";
 			packageProductDependencies = (
+				AE721A7A2DB7CD34002DA913 /* SocketIO */,
 			);
 			productName = "KaiWatch Watch App";
 			productReference = AE41FA1F2DB7BC4B00C47B5B /* KaiWatch Watch App.app */;
@@ -146,6 +149,9 @@
 			);
 			mainGroup = AE41FA122DB7BC4B00C47B5B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AE721A792DB7CD34002DA913 /* XCRemoteSwiftPackageReference "socket" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AE41FA1A2DB7BC4B00C47B5B /* Products */;
 			projectDirPath = "";
@@ -312,14 +318,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "KaiWatch Watch App/KaiWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"KaiWatch Watch App/Preview Content\"";
-				DEVELOPMENT_TEAM = 4TDG3N29UW;
+				DEVELOPMENT_TEAM = 95Y786BLN7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KaiWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Quaternion Info";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs access to the local network to connect to the game server";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "nneeed it";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = map;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -329,7 +338,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch.watchkitappss;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -345,14 +354,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "KaiWatch Watch App/KaiWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"KaiWatch Watch App/Preview Content\"";
-				DEVELOPMENT_TEAM = 4TDG3N29UW;
+				DEVELOPMENT_TEAM = 95Y786BLN7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KaiWatch-Watch-App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Quaternion Info";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs access to the local network to connect to the game server";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "nneeed it";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = map;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -362,7 +374,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch.watchkitappss;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -379,7 +391,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 4TDG3N29UW;
+				DEVELOPMENT_TEAM = 95Y786BLN7;
 				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch;
@@ -394,7 +406,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 4TDG3N29UW;
+				DEVELOPMENT_TEAM = 95Y786BLN7;
 				INFOPLIST_KEY_CFBundleDisplayName = KaiWatch;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.KaiSense.KaiWatch;
@@ -436,6 +448,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AE721A792DB7CD34002DA913 /* XCRemoteSwiftPackageReference "socket" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/socketio/socket.io-client-swift";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AE721A7A2DB7CD34002DA913 /* SocketIO */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AE721A792DB7CD34002DA913 /* XCRemoteSwiftPackageReference "socket" */;
+			productName = SocketIO;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AE41FA132DB7BC4B00C47B5B /* Project object */;
 }
