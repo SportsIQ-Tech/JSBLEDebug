@@ -26,9 +26,9 @@ struct ContentView: View {
 
     // State for throttling updates
     @State private var lastSentTimestamp: Date = Date(timeIntervalSince1970: 0)
-    private let updateInterval: TimeInterval = 0.1 // Send updates max 10 times/sec
+    private let updateInterval: TimeInterval = 0.05 // Increased to 20 times/sec (was 0.1)
     @State private var lastBearingTimestamp: Date = Date(timeIntervalSince1970: 0)
-    private let bearingUpdateInterval: TimeInterval = 0.2 // Send bearing updates max 5 times/sec
+    private let bearingUpdateInterval: TimeInterval = 0.1 // Increased to 10 times/sec (was 0.2)
 
     var body: some View {
         // Show Team Selection Overlay if no team is selected

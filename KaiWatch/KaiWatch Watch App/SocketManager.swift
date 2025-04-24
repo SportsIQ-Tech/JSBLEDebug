@@ -36,7 +36,7 @@ class RESTAPIManager: ObservableObject {
     // MARK: - Properties
     private let baseURL = "http://192.168.1.74:8000/api"
     private var pollingTimer: Timer?
-    private let pollingInterval: TimeInterval = 1.0 // Poll every 1 second
+    private let pollingInterval: TimeInterval = 0.5 // Poll every 0.5 seconds (was 1.0)
     
     // MARK: - Initialization
     init() {
