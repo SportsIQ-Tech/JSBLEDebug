@@ -118,6 +118,23 @@ def handle_update_bearing(bearing):
     else:
         logging.warning(f"Received invalid bearing update from {client_sid}: {bearing}")
 
+@socketio.on('share_drawing')
+def handle_share_drawing(data):
+    """Handle drawing data shared by a client and broadcast it."""
+    client_sid = request.sid
+    if isinstance(data, dict) and 'geojson' in data and 'team' in data:
+        # Add client_id to the data to be broadcasted
+        drawing_data = {
+            'geojson': data.get('geojson'),
+            'clientId': client_sid,
+            'team': data.get('team')
+        }
+        logging.info(f"Received drawing from {client_sid} (Team: {data.get('team')}), broadcasting...")
+        # Broadcast to all other clients
+        emit('new_drawing', drawing_data, broadcast=True, include_self=False)
+    else:
+        logging.warning(f"Received invalid drawing data from {client_sid}: {data}")
+
 # --- Main Execution ---
 
 if __name__ == '__main__':

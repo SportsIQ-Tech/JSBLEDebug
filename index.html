@@ -8,6 +8,10 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
      crossorigin=""/>
+    <!-- Add Leaflet.draw CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"
+     integrity="sha512-gc3xjCmIy673V6MyOAZhIW93xhM9ei1I+gLbmFjUHIjocENRsLX/QUE1htk5q1XV2D/iie/VQ8DXI6Vu8bexvQ==" 
+     crossorigin="anonymous" referrerpolicy="no-referrer" />
         <style>
         body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: monospace; }
         #main-content {
@@ -26,6 +30,7 @@
             flex: 1; /* Take up remaining space */
             min-height: 50%; /* Minimum height */
             border-top: 1px solid #555; /* Separator line */
+            position: relative; /* Needed for absolute positioning of children */
         }
         #map {
              height: 100%;
@@ -126,6 +131,25 @@
              height: 16px;
              line-height: 16px; /* Vertically center X */
         }
+        /* Drawing Buttons */
+        #draw-button, #clear-drawings-button {
+            position: absolute;
+            top: 10px; /* Position from top of bottom-container */
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            background-color: #555;
+            border: none;
+            border-radius: 5px;
+            color: #fff;
+            z-index: 400; /* Ensure above map tiles but below modals */
+        }
+        #draw-button {
+            right: 10px; /* Position on the right */
+        }
+        #clear-drawings-button {
+            right: 140px; /* Position to the left of draw-button */
+        }
         </style>
     </head>
     <body>
@@ -140,6 +164,8 @@
         </div>
         <div id="bottom-container">
             <div id="map"></div>
+            <button id="draw-button">Start Drawing</button>
+            <button id="clear-drawings-button">Clear Drawings</button>
         </div>
     </div>
 
@@ -159,6 +185,10 @@
      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
      crossorigin=""></script>
+    <!-- Add Leaflet.draw JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"
+     integrity="sha512-ozq8xQKq6urvuU6jNgkfqAmT7jKN2XumbrX1JiB3TnF7tI48DPI4Gy1GXKD/V3EExgAs1V+pRO7vwtS1LHg0Gw=="
+     crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <!-- Add Socket.IO Client Library -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"
@@ -192,6 +222,8 @@
         const topContainer = document.getElementById('top-container');
         const mapContainer = document.getElementById('map');
         const togglePreviewButton = document.getElementById('toggle-preview-button');
+        const drawButton = document.getElementById('draw-button');
+        const clearDrawingsButton = document.getElementById('clear-drawings-button');
 
         // --- State ---
         let device = null;
@@ -218,6 +250,13 @@
         let localIsDead = false;
         const deadPitchThreshold = -55 * (Math.PI / 180); // Below -75 degrees pitch = dead (radians)
         const euler = new THREE.Euler(); // Reusable Euler for pitch calculation
+
+        // Drawing State
+        let drawnItems = null; // FeatureGroup for local drawings
+        let receivedDrawingItems = null; // FeatureGroup for remote drawings
+        let drawControl = null; // Leaflet Draw control instance
+        let currentPolylineDrawer = null; // Reference to the active drawing handler
+        let localDrawingLayer = null; // The currently drawn local layer before sharing
 
         // Throttling for bearing updates
         let lastBearingSendTime = 0;
@@ -322,6 +361,38 @@
                      console.warn('Received bearing update for unknown client:', clientId);
                      // Request full state? Or wait for next all_states broadcast.
                  }
+             });
+
+             socket.on('new_drawing', (drawingData) => {
+                 console.log(`[Socket Event] Received 'new_drawing'`, drawingData);
+                 if (!drawingData || !drawingData.geojson || !drawingData.clientId || !drawingData.team) {
+                     console.warn("Received incomplete drawing data.", drawingData);
+                     return;
+                 }
+                 const { geojson, clientId, team } = drawingData;
+                 const isTeammate = (clientId !== myClientId && team === myTeam);
+                 console.log(` -> Drawing from: ${clientId}, Team: ${team}. Is Teammate: ${isTeammate}`);
+
+                 if (isTeammate) { // Only show drawings from teammates
+                     try {
+                         const layer = L.geoJSON(geojson, {
+                             style: function(feature) {
+                                 let color = (team === 'red') ? "#ff8080" : "#8080ff"; // Lighter team colors
+                                 return { color: color, weight: 3, opacity: 0.8 };
+                             }
+                         });
+                         if (receivedDrawingItems) {
+                              receivedDrawingItems.addLayer(layer);
+                              console.log(` -> Added drawing from ${clientId} to receivedDrawingItems group.`);
+                         } else {
+                             console.error("receivedDrawingItems layer group not initialized when trying to add layer!");
+                         }
+                     } catch (e) {
+                         console.error("Error creating or adding GeoJSON layer:", e, geojson);
+                     }
+                  } else {
+                      console.log(' -> Ignoring own drawing or drawing from different team');
+                  }
              });
          }
 
@@ -909,11 +980,89 @@
             }
         });
 
+        // Listener for the Draw/Share button
+        drawButton.addEventListener('click', () => {
+            if (!drawControl) {
+                console.error("Draw control not initialized!");
+                return;
+            }
+
+            if (!currentPolylineDrawer) {
+                // Start Drawing
+                currentPolylineDrawer = new L.Draw.Polyline(map, drawControl.options.draw.polyline);
+                currentPolylineDrawer.enable();
+                drawButton.textContent = 'Share Drawing';
+                console.log("Drawing mode enabled.");
+            } else {
+                // Share Drawing / Cancel Drawing
+                currentPolylineDrawer.disable(); // Disable the drawing handler
+                currentPolylineDrawer = null;
+
+                if (localDrawingLayer) {
+                    // Send the drawing
+                    const geojson = localDrawingLayer.toGeoJSON();
+                    const payload = {
+                        geojson: geojson,
+                        team: myTeam
+                    };
+                    console.log("[Socket Event] Sending 'share_drawing' with payload:", payload);
+                    if (!payload.team) {
+                         console.warn("Attempting to send drawing without team selected!");
+                    }
+                    sendSocketIOMessage('share_drawing', payload);
+                    // Optionally clear local drawing after sharing, or keep it.
+                    // --- Reverting: Keep local drawing after sharing ---
+                    // if (drawnItems && localDrawingLayer) {
+                    //     drawnItems.removeLayer(localDrawingLayer);
+                    //     console.log("Removed local drawing layer after sharing.");
+                    // }
+                    // localDrawingLayer = null; // Clear reference
+                    // --- End Revert ---
+                     drawButton.textContent = 'Start Drawing'; // Reset button
+                     // Keeping local drawing visible after share.
+                } else {
+                    // No drawing was created, just cancelled
+                    drawButton.textContent = 'Start Drawing';
+                    console.log("Drawing mode cancelled.");
+                }
+            }
+        });
+
+        // Listener for the Clear Drawings button
+        clearDrawingsButton.addEventListener('click', () => {
+            let clearedCount = 0;
+            if (receivedDrawingItems) {
+                const layerCount = receivedDrawingItems.getLayers().length;
+                console.log(`Clearing received drawings. Layer count before: ${layerCount}`);
+                receivedDrawingItems.clearLayers(); // Clear received drawings
+                clearedCount += layerCount;
+                console.log(`Cleared received drawings.`);
+            } else {
+                console.warn("receivedDrawingItems group not found!");
+            }
+            // Also clear local drawing
+            if (drawnItems) {
+                const localLayerCount = drawnItems.getLayers().length;
+                console.log(`Clearing local drawing. Layer count before: ${localLayerCount}`);
+                 drawnItems.clearLayers(); // Clear local drawings group
+                 clearedCount += localLayerCount;
+                 localDrawingLayer = null; // Reset the reference to the current local drawing
+                 console.log(`Cleared local drawing.`);
+            } else {
+                console.warn("drawnItems group not found!");
+            }
+             console.log(`Total drawings cleared: ${clearedCount}`);
+        });
+
         // --- Initialization ---
-        initMap();
-        initThreeJS();
-        initGPS();
-        connectSocketIO(); // Connect Socket.IO after setting up UI
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM fully loaded and parsed");
+            initMap();
+            initializeDrawing(); // Initialize drawing controls after map
+            initThreeJS();
+            initGPS();
+            connectSocketIO(); // Connect Socket.IO after setting up UI
+        });
 
         // --- Helper: Create Marker Icon ---
         function createMarkerIcon(isLocal, isDead, isConnected, team) {
@@ -942,6 +1091,71 @@
             });
         }
 
-        </script>
+        // --- Drawing Handlers ---
+        function initializeDrawing() {
+            drawnItems = new L.FeatureGroup().addTo(map);
+            receivedDrawingItems = new L.FeatureGroup().addTo(map);
+
+            drawControl = new L.Control.Draw({
+                edit: { featureGroup: drawnItems }, // Allow editing local drawings (optional)
+                draw: {
+                    polyline: {
+                        shapeOptions: {
+                            color: '#f357a1', // Pink color for drawing
+                            weight: 4
+                        }
+                    },
+                    // Disable other drawing tools
+                    polygon: false,
+                    rectangle: false,
+                    circle: false,
+                    marker: false,
+                    circlemarker: false
+                }
+            });
+            // Don't add the control toolbar to the map directly
+            // map.addControl(drawControl);
+
+            map.on(L.Draw.Event.CREATED, function (event) {
+                const layer = event.layer;
+                // Clear previous local drawing before adding new one
+                if (localDrawingLayer) {
+                    drawnItems.removeLayer(localDrawingLayer);
+                }
+                localDrawingLayer = layer; // Store the new drawing
+                drawnItems.addLayer(layer);
+                console.log("Drawing created locally.");
+                // Keep button state as "Share Drawing"
+                drawButton.textContent = 'Share Drawing';
+            });
+
+             map.on(L.Draw.Event.DRAWSTART, function (event) {
+                // Clear previous local drawing when starting a new one
+                if (localDrawingLayer) {
+                    drawnItems.removeLayer(localDrawingLayer);
+                    localDrawingLayer = null;
+                }
+                 drawButton.textContent = 'Share Drawing'; // Ensure text is correct
+                 console.log("Drawing started.");
+             });
+
+            map.on(L.Draw.Event.DRAWSTOP, function(event) {
+                // If drawing stops without creating anything (e.g., escape key),
+                // revert button state if no local drawing exists
+                if (!localDrawingLayer) {
+                    drawButton.textContent = 'Start Drawing';
+                }
+                 console.log("Drawing stopped.");
+            });
+
+            map.on(L.Draw.Event.EDITED, function (event) {
+                 // If you allow editing, you might want to re-share or update
+                 console.log("Local drawing edited.");
+                 // For now, require clicking share again after edit
+                 drawButton.textContent = 'Share Drawing';
+             });
+        }
+
+    </script>
     </body>
 </html>
