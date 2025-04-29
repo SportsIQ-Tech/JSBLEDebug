@@ -134,6 +134,7 @@
         <div id="top-container">
             <!-- Connect button and status moved inside top container -->
             <button id="connect-button">Connect KaiTag</button>
+            <button id="toggle-preview-button">Hide/Show Gun Preview</button>
             <div id="status">Status: Disconnected</div>
             <!-- Canvas will be added here by Three.js -->
         </div>
@@ -190,6 +191,7 @@
         const statusDiv = document.getElementById('status');
         const topContainer = document.getElementById('top-container');
         const mapContainer = document.getElementById('map');
+        const togglePreviewButton = document.getElementById('toggle-preview-button');
 
         // --- State ---
         let device = null;
@@ -894,6 +896,16 @@
                 disconnectDevice();
             } else {
                 connectDevice();
+            }
+        });
+
+        // Add listener for the toggle preview button
+        togglePreviewButton.addEventListener('click', () => {
+            topContainer.classList.toggle('hidden');
+            togglePreviewButton.textContent = topContainer.classList.contains('hidden') ? 'Show Gun Preview' : 'Hide Gun Preview';
+            // Ensure map resizes correctly after top container is hidden/shown
+            if (map) {
+                map.invalidateSize();
             }
         });
 
