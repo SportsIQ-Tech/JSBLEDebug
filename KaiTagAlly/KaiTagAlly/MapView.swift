@@ -3,6 +3,35 @@ import MapKit // Import MapKit
 import CoreLocation
 
 // Note: This file depends on the LocationManager class which is defined in LocationManager.swift
+// and the BluetoothManager and Quaternion from BluetoothManager.swift
+
+// Local struct for quaternion data to avoid import issues
+struct MapQuaternion {
+    var w: Float = 0.0
+    var x: Float = 0.0
+    var y: Float = 0.0
+    var z: Float = 0.0
+    
+    // Constructor to convert from BluetoothManager's Quaternion
+    init(from quaternion: Any) {
+        if let q = quaternion as? [String: Float] {
+            self.w = q["w"] ?? 0.0
+            self.x = q["x"] ?? 0.0
+            self.y = q["y"] ?? 0.0
+            self.z = q["z"] ?? 0.0
+        } else {
+            // Handle other cases - this allows flexibility with how the quaternion is passed
+            // We'll use reflection to try to extract values dynamically
+            let mirror = Mirror(reflecting: quaternion)
+            for child in mirror.children {
+                if child.label == "w" { self.w = child.value as? Float ?? 0.0 }
+                if child.label == "x" { self.x = child.value as? Float ?? 0.0 }
+                if child.label == "y" { self.y = child.value as? Float ?? 0.0 }
+                if child.label == "z" { self.z = child.value as? Float ?? 0.0 }
+            }
+        }
+    }
+}
 
 struct DrawingPath {
     var geoPoints: [CLLocationCoordinate2D] = []
@@ -13,6 +42,8 @@ struct DrawingPath {
 struct MapView: View {
     // Observe the LocationManager passed from ContentView
     @ObservedObject var locationManager: LocationManager
+    // Observe the BluetoothManager passed from ContentView
+    @ObservedObject var bluetoothManager: BluetoothManager
 
     // State variable to hold the map region
     @State private var region = MKCoordinateRegion(
@@ -26,6 +57,10 @@ struct MapView: View {
     @State private var isDrawingEnabled = false
     @State private var selectedColor: Color = .red
     
+    // Direction indicator settings
+    @State private var directionLineLength: Double = 500.0 // Length in meters (increased 10x)
+    @State private var showDirectionLine: Bool = true
+    
     // Reference to the map for coordinate conversion
     @State private var mapRect: MKMapRect?
 
@@ -37,7 +72,7 @@ struct MapView: View {
                     // Optionally start location updates when the map appears
                     // locationManager.startUpdatingLocation() // Already started in ContentView usually
                 }
-                .onChange(of: locationManager.location) {
+                .onChange(of: locationManager.location) { newValue in
                     // Update the map region when the location changes
                     if let coordinate = locationManager.location?.coordinate {
                         region.center = coordinate
@@ -121,6 +156,33 @@ struct MapView: View {
                         }
                     }
                     .stroke(currentPath.color, lineWidth: currentPath.lineWidth)
+                    
+                    // Draw direction indicator from user location
+                    if showDirectionLine && !isDrawingEnabled, 
+                       let userLocation = locationManager.location?.coordinate,
+                       let userScreenPoint = convertToScreenPoint(userLocation, in: geometry) {
+                        
+                        // Calculate direction from quaternion
+                        let direction = quaternionToDirection(bluetoothManager.quaternion)
+                        
+                        // Calculate the endpoint using the direction vector
+                        let destinationCoordinate = calculateDestinationPoint(
+                            from: userLocation,
+                            direction: direction,
+                            distance: directionLineLength
+                        )
+                        
+                        if let endScreenPoint = convertToScreenPoint(destinationCoordinate, in: geometry) {
+                            // Draw a simple line without arrowhead
+                            Path { path in
+                                path.move(to: userScreenPoint)
+                                path.addLine(to: endScreenPoint)
+                            }
+                            .stroke(Color.blue, lineWidth: 4)
+                            
+                            // Remove arrowhead code
+                        }
+                    }
                 }
             }
             
@@ -141,6 +203,18 @@ struct MapView: View {
                             .padding()
                             .background(Circle().fill(Color.white.opacity(0.8)))
                             .foregroundColor(isDrawingEnabled ? .red : .blue)
+                    }
+                    
+                    Spacer()
+                    
+                    // Direction indicator toggle
+                    Button(action: {
+                        showDirectionLine.toggle()
+                    }) {
+                        Image(systemName: showDirectionLine ? "location.north.line.fill" : "location.north.line")
+                            .padding()
+                            .background(Circle().fill(Color.white.opacity(0.8)))
+                            .foregroundColor(showDirectionLine ? .blue : .gray)
                     }
                     
                     Spacer()
@@ -240,6 +314,47 @@ struct MapView: View {
         let location1 = CLLocation(latitude: coord1.latitude, longitude: coord1.longitude)
         let location2 = CLLocation(latitude: coord2.latitude, longitude: coord2.longitude)
         return location1.distance(from: location2) // Distance in meters
+    }
+    
+    // Convert quaternion to a 2D heading direction
+    private func quaternionToDirection(_ quaternionData: Any) -> Double {
+        // Convert incoming quaternion to our local MapQuaternion type
+        let quaternion = MapQuaternion(from: quaternionData)
+        
+        // Calculate heading/yaw from quaternion (rotation around Y axis)
+        // Formula: atan2(2*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+        
+        let q = quaternion
+        let headingFloat = atan2(2 * (q.y * q.z + q.w * q.x), 
+                        q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z)
+        
+        return Double(headingFloat) // Convert Float to Double
+    }
+    
+    // Calculate destination point given a starting point, direction and distance
+    private func calculateDestinationPoint(from startCoordinate: CLLocationCoordinate2D, 
+                                          direction: Double,
+                                          distance: Double) -> CLLocationCoordinate2D {
+        // Earth's radius in meters
+        let earthRadius = 6371000.0
+        
+        // Convert latitude and longitude from degrees to radians
+        let lat1 = startCoordinate.latitude * Double.pi / 180
+        let lon1 = startCoordinate.longitude * Double.pi / 180
+        
+        // Calculate the destination latitude
+        let lat2 = asin(sin(lat1) * cos(distance / earthRadius) +
+                        cos(lat1) * sin(distance / earthRadius) * cos(direction))
+        
+        // Calculate the destination longitude
+        let lon2 = lon1 + atan2(sin(direction) * sin(distance / earthRadius) * cos(lat1),
+                               cos(distance / earthRadius) - sin(lat1) * sin(lat2))
+        
+        // Convert back to degrees
+        let latitudeDegrees = lat2 * 180 / Double.pi
+        let longitudeDegrees = lon2 * 180 / Double.pi
+        
+        return CLLocationCoordinate2D(latitude: latitudeDegrees, longitude: longitudeDegrees)
     }
 }
 

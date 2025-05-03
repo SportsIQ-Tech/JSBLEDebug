@@ -38,7 +38,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(bluetoothManager.isConnected ? .red : .blue)
 
-                    NavigationLink(destination: MapView(locationManager: locationManager)) {
+                    NavigationLink(destination: MapView(locationManager: locationManager, bluetoothManager: bluetoothManager)) {
                         Label("Go to Map", systemImage: "map.fill")
                     }
                     .buttonStyle(.bordered)
