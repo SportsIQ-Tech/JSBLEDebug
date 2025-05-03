@@ -96,9 +96,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         // Consider specific CL Errors like kCLErrorDenied etc.
         if let clError = error as? CLError, clError.code == .denied {
              print("Location access denied by user.")
-             // Update state to reflect denial
+             // Update state to reflect denial - Ensure main thread
              DispatchQueue.main.async {
                  self.authorizationStatus = .denied // Update status
+                 // Optionally clear location if denied
+                 // self.location = nil
              }
              stopUpdatingLocation()
          }

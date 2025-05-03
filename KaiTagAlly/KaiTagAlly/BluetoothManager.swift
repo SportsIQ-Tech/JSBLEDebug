@@ -18,6 +18,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     private var centralManager: CBCentralManager!
     private var kaiTagPeripheral: CBPeripheral?
+    private var reconnectTimer: Timer? // Timer for reconnection attempts
 
     @Published var connectionStatus: String = "Disconnected"
     @Published var isConnected: Bool = false
@@ -35,34 +36,60 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         switch central.state {
         case .poweredOn:
             print("Bluetooth is Powered On.")
-            connectionStatus = "Ready to Scan"
-            // Start scanning immediately or provide a button to trigger it
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "Ready to Scan"
+            }
+            // Consider starting scan automatically or waiting for user action
             // startScan()
         case .poweredOff:
             print("Bluetooth is Powered Off.")
-            connectionStatus = "Bluetooth Off"
-            isConnected = false
-            // Handle disconnection if needed
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "Bluetooth Off"
+                self.isConnected = false
+                self.invalidateReconnectTimer() // Stop trying to reconnect if BT is off
+            }
         case .resetting:
             print("Bluetooth is Resetting.")
-            connectionStatus = "Resetting..."
-            isConnected = false
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "Resetting..."
+                self.isConnected = false
+                self.invalidateReconnectTimer()
+            }
         case .unauthorized:
             print("Bluetooth is Unauthorized.")
-            connectionStatus = "Bluetooth Unauthorized"
-            isConnected = false
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "Bluetooth Unauthorized"
+                self.isConnected = false
+                self.invalidateReconnectTimer()
+            }
         case .unknown:
             print("Bluetooth state is Unknown.")
-            connectionStatus = "Bluetooth Unknown State"
-            isConnected = false
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "Bluetooth Unknown State"
+                self.isConnected = false
+                self.invalidateReconnectTimer()
+            }
         case .unsupported:
             print("Bluetooth is Unsupported.")
-            connectionStatus = "Bluetooth Not Supported"
-            isConnected = false
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "Bluetooth Not Supported"
+                self.isConnected = false
+                self.invalidateReconnectTimer()
+            }
         @unknown default:
             print("A new Bluetooth state was added.")
-            connectionStatus = "Bluetooth Unknown State"
-            isConnected = false
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "Bluetooth Unknown State"
+                self.isConnected = false
+                self.invalidateReconnectTimer()
+            }
         }
     }
 
@@ -74,7 +101,10 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         }
         // print("Starting scan for KaiTag peripheral with service UUID: \(kServiceUUID)") // Keep this line commented or remove
         print("Starting scan for peripheral with name 'KaiTag'")
-        connectionStatus = "Scanning..."
+        // Update status on main thread
+        DispatchQueue.main.async {
+            self.connectionStatus = "Scanning..."
+        }
         // Scan for *any* peripherals, filtering will happen in didDiscover
         centralManager.scanForPeripherals(withServices: nil, options: nil)
     }
@@ -82,8 +112,11 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func stopScan() {
          print("Stopping scan.")
          centralManager.stopScan()
-         if connectionStatus == "Scanning..." {
-             connectionStatus = "Scan stopped"
+         // Update status on main thread only if currently scanning
+         DispatchQueue.main.async {
+             if self.connectionStatus == "Scanning..." {
+                 self.connectionStatus = "Scan stopped"
+             }
          }
      }
 
@@ -93,7 +126,10 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             print("Discovered KaiTag: \(name) with RSSI: \(RSSI)")
             kaiTagPeripheral = peripheral
             kaiTagPeripheral?.delegate = self // Set the delegate
-            connectionStatus = "KaiTag Found. Connecting..."
+            // Update status on main thread
+            DispatchQueue.main.async {
+                self.connectionStatus = "KaiTag Found. Connecting..."
+            }
             centralManager.stopScan() // Stop scanning once found
             centralManager.connect(kaiTagPeripheral!, options: nil)
         } else if peripheral.name != nil {
@@ -103,28 +139,49 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         print("Connected to \(peripheral.name ?? "device")")
-        connectionStatus = "Connected. Discovering services..."
-        isConnected = true
+        // Stop any reconnection attempts
+        invalidateReconnectTimer()
+        // Update status on main thread
+        DispatchQueue.main.async {
+            self.connectionStatus = "Connected. Discovering services..."
+            self.isConnected = true
+        }
         // Discover the specific service we need
         peripheral.discoverServices([kServiceUUID])
     }
 
      func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
          print("Failed to connect to \(peripheral.name ?? "device"): \(error?.localizedDescription ?? "Unknown error")")
-         connectionStatus = "Connection Failed"
-         isConnected = false
+         // Update status on main thread
+         DispatchQueue.main.async {
+            self.connectionStatus = "Connection Failed"
+            self.isConnected = false
+         }
          kaiTagPeripheral = nil
-         // Optionally restart scanning or implement retry logic
+         // Optionally schedule reconnection attempt
+         scheduleReconnect()
      }
 
      func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
          print("Disconnected from \(peripheral.name ?? "device"): \(error?.localizedDescription ?? "No error info")")
-         connectionStatus = "Disconnected"
-         isConnected = false
+         let wasConnected = isConnected // Check if we thought we were connected
+         // Update status on main thread
+         DispatchQueue.main.async {
+            self.connectionStatus = "Disconnected"
+            self.isConnected = false
+            self.quaternion = Quaternion() // Reset quaternion data
+         }
          kaiTagPeripheral = nil
-         quaternion = Quaternion() // Reset quaternion data
-         // Implement reconnection logic here if desired, e.g., start scanning again
-         // startScan()
+
+         // Only attempt reconnect if it was an unexpected disconnect (error != nil or wasConnected)
+         // and Bluetooth is powered on.
+         if (error != nil || wasConnected) && centralManager.state == .poweredOn {
+            print("Unexpected disconnect. Scheduling reconnect attempt...")
+            scheduleReconnect()
+         } else {
+             print("Disconnect seems intentional or Bluetooth is off. Not attempting reconnect.")
+             invalidateReconnectTimer() // Ensure timer is stopped
+         }
      }
 
     // MARK: - CBPeripheralDelegate Methods
@@ -132,7 +189,10 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         if let error = error {
             print("Error discovering services: \(error.localizedDescription)")
-            connectionStatus = "Error discovering services"
+            // Update status on main thread
+             DispatchQueue.main.async {
+                 self.connectionStatus = "Error discovering services"
+             }
             centralManager.cancelPeripheralConnection(peripheral)
             return
         }
@@ -142,7 +202,10 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         for service in services {
             print("Discovered service: \(service.uuid)")
             if service.uuid == kServiceUUID {
-                connectionStatus = "Service Found. Discovering characteristics..."
+                // Update status on main thread
+                 DispatchQueue.main.async {
+                    self.connectionStatus = "Service Found. Discovering characteristics..."
+                 }
                 // Discover the specific characteristic we need
                 peripheral.discoverCharacteristics([kQuaternionCharacteristicUUID], for: service)
             }
@@ -152,7 +215,10 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         if let error = error {
             print("Error discovering characteristics: \(error.localizedDescription)")
-            connectionStatus = "Error discovering characteristics"
+            // Update status on main thread
+             DispatchQueue.main.async {
+                 self.connectionStatus = "Error discovering characteristics"
+             }
             centralManager.cancelPeripheralConnection(peripheral)
             return
         }
@@ -163,7 +229,10 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             print("Discovered characteristic: \(characteristic.uuid)")
             if characteristic.uuid == kQuaternionCharacteristicUUID {
                 print("Found Quaternion characteristic. Subscribing...")
-                connectionStatus = "Subscribing to Quaternion..."
+                // Update status on main thread
+                 DispatchQueue.main.async {
+                     self.connectionStatus = "Subscribing to Quaternion..."
+                 }
                 // Subscribe to notifications
                 peripheral.setNotifyValue(true, for: characteristic)
             }
@@ -173,16 +242,23 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
      func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
          if let error = error {
              print("Error changing notification state for \(characteristic.uuid): \(error.localizedDescription)")
-             connectionStatus = "Subscription Error"
+             // Update status on main thread
+             DispatchQueue.main.async {
+                 self.connectionStatus = "Subscription Error"
+             }
              return
          }
 
-         if characteristic.isNotifying {
-             print("Successfully subscribed to notifications for \(characteristic.uuid)")
-             connectionStatus = "Connected and Listening"
-         } else {
-             print("Stopped notifications for \(characteristic.uuid)")
-             // This might happen on disconnect
+         // Update status on main thread
+         DispatchQueue.main.async {
+             if characteristic.isNotifying {
+                 print("Successfully subscribed to notifications for \(characteristic.uuid)")
+                 self.connectionStatus = "Connected and Listening"
+             } else {
+                 print("Stopped notifications for \(characteristic.uuid)")
+                 // Potentially update status if needed, e.g., if disconnect wasn't called yet
+                 // self.connectionStatus = "Notifications Stopped"
+             }
          }
      }
 
@@ -219,24 +295,30 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     // MARK: - Public Control Methods
 
     func connect() {
-         if kaiTagPeripheral != nil && kaiTagPeripheral?.state == .connected {
-             print("Already connected.")
-             return
-         } else if kaiTagPeripheral != nil && kaiTagPeripheral?.state == .connecting {
-             print("Already connecting.")
-             return
-         } else if kaiTagPeripheral != nil {
-             print("Found peripheral, attempting connection...")
-             connectionStatus = "Connecting..."
-             centralManager.connect(kaiTagPeripheral!, options: nil)
-         }
-         else {
-             print("No peripheral found yet, starting scan.")
-             startScan()
-         }
-     }
+        // Stop trying to reconnect automatically if user tries manually
+        invalidateReconnectTimer()
+
+        if kaiTagPeripheral != nil && kaiTagPeripheral?.state == .connected {
+            print("Already connected.")
+            return
+        } else if kaiTagPeripheral != nil && kaiTagPeripheral?.state == .connecting {
+            print("Already connecting.")
+            return
+        } else if kaiTagPeripheral != nil {
+            print("Found peripheral, attempting connection...")
+            connectionStatus = "Connecting..."
+            centralManager.connect(kaiTagPeripheral!, options: nil)
+        }
+        else {
+            print("No peripheral found yet, starting scan.")
+            startScan()
+        }
+    }
 
     func disconnect() {
+        // Stop trying to reconnect automatically if user disconnects manually
+        invalidateReconnectTimer()
+
         if let peripheral = kaiTagPeripheral {
             if peripheral.state == .connected || peripheral.state == .connecting {
                 print("Disconnecting from \(peripheral.name ?? "device")...")
@@ -251,6 +333,38 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         }
         // Also stop scanning if it was running
         stopScan()
+    }
+
+    // MARK: - Reconnection Logic
+
+    private func scheduleReconnect() {
+        // Invalidate existing timer first
+        invalidateReconnectTimer()
+
+        // Don't try if Bluetooth isn't powered on
+        guard centralManager.state == .poweredOn else {
+            print("Cannot schedule reconnect, Bluetooth is not powered on.")
+            return
+        }
+
+        print("Scheduling reconnect attempt in 5 seconds...")
+        // Schedule a timer to try scanning again after a delay
+        // Ensure timer runs on the main run loop for safety with UI updates
+        DispatchQueue.main.async {
+            self.reconnectTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
+                print("Reconnect timer fired. Attempting to scan...")
+                self?.startScan()
+            }
+        }
+    }
+
+    private func invalidateReconnectTimer() {
+        // Make sure timer is invalidated on the main thread where it was scheduled
+        DispatchQueue.main.async {
+            self.reconnectTimer?.invalidate()
+            self.reconnectTimer = nil
+           // print("Reconnect timer invalidated.") // Optional log
+        }
     }
 }
 

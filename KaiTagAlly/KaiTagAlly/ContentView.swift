@@ -26,7 +26,7 @@ struct ContentView: View {
                 Text("Status: \(bluetoothManager.connectionStatus)")
                     .font(.headline)
 
-                HStack {
+                HStack(spacing: 20) {
                     Button(bluetoothManager.isConnected ? "Disconnect" : "Connect KaiTag") {
                         if bluetoothManager.isConnected {
                             bluetoothManager.disconnect()
@@ -37,6 +37,11 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(bluetoothManager.isConnected ? .red : .blue)
+
+                    NavigationLink(destination: MapView(locationManager: locationManager)) {
+                        Label("Go to Map", systemImage: "map.fill")
+                    }
+                    .buttonStyle(.bordered)
                 }
 
                 Divider()
@@ -73,12 +78,6 @@ struct ContentView: View {
                 }
 
                 Divider()
-
-                 // Navigation Link to Map View
-                 NavigationLink(destination: MapView(locationManager: locationManager)) {
-                     Label("Go to Map", systemImage: "map.fill")
-                 }
-                 .padding(.top)
 
                 Spacer() // Pushes content to the top
 
