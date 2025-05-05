@@ -19,6 +19,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     private var centralManager: CBCentralManager!
     private var kaiTagPeripheral: CBPeripheral?
     private var reconnectTimer: Timer? // Timer for reconnection attempts
+    private var quaternionCharacteristic: CBCharacteristic?
 
     @Published var connectionStatus: String = "Disconnected"
     @Published var isConnected: Bool = false
@@ -235,6 +236,7 @@ class BluetoothManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                  }
                 // Subscribe to notifications
                 peripheral.setNotifyValue(true, for: characteristic)
+                quaternionCharacteristic = characteristic
             }
         }
     }

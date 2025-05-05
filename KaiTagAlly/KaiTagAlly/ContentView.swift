@@ -12,6 +12,8 @@ struct ContentView: View {
     @StateObject private var bluetoothManager = BluetoothManager()
     // Instantiate the LocationManager as a StateObject
     @StateObject private var locationManager = LocationManager()
+    // Instantiate the SocketManager as a StateObject
+    @StateObject private var socketManager = SocketManager()
 
     var body: some View {
         // Wrap in NavigationView for navigation capabilities
@@ -38,7 +40,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(bluetoothManager.isConnected ? .red : .blue)
 
-                    NavigationLink(destination: MapView(locationManager: locationManager, bluetoothManager: bluetoothManager)) {
+                    NavigationLink(destination: MapView(locationManager: locationManager, bluetoothManager: bluetoothManager, socketManager: socketManager)) {
                         Label("Go to Map", systemImage: "map.fill")
                     }
                     .buttonStyle(.bordered)
@@ -77,7 +79,13 @@ struct ContentView: View {
                         .foregroundColor(.gray)
                 }
 
+                // Socket Status
                 Divider()
+                
+                Text("Server Status")
+                    .font(.headline)
+                Text(socketManager.isConnected ? "Connected" : "Disconnected")
+                    .foregroundColor(socketManager.isConnected ? .green : .red)
 
                 Spacer() // Pushes content to the top
 
@@ -87,8 +95,8 @@ struct ContentView: View {
             .navigationBarHidden(true) // Hide the navigation bar for the root view if desired
         }
         .onAppear {
-            // Optionally start location updates when the content view appears
-            // locationManager.startUpdatingLocation() // Already started by LocationManager init if authorized
+            // When the app starts, connect to the server
+            socketManager.connect()
         }
     }
 }
