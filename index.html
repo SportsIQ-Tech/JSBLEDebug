@@ -25,6 +25,7 @@
             position: relative; /* For positioning button/status inside */
             overflow: hidden; /* Ensure canvas doesn't overflow */
             min-height: 50%; /* Minimum height */
+            background: #fff; /* Set background to white for gun render area */
         }
         #bottom-container {
             flex: 1; /* Take up remaining space */
@@ -578,6 +579,7 @@
 
             camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
             renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setClearColor(0xffffff, 1); // Set background to white
             renderer.setSize(width, height);
             topContainer.appendChild(renderer.domElement); // Append canvas to top container
 
